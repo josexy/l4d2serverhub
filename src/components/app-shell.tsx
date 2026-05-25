@@ -7,6 +7,8 @@ import { useI18n } from "@/lib/app-preferences";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
+import appIconUrl from "../../src-tauri/icons/128x128.png";
+
 type ShellPage = "servers" | "favorites" | "history" | "settings" | "about";
 
 type NavigationItem = {
@@ -54,10 +56,11 @@ export function AppShell({
     <div className="app-shell">
       <aside className="app-sidebar" aria-label="Primary navigation">
         <div className="app-brand">
-          <div className="app-brand-mark">L4</div>
+          <div className="app-brand-mark">
+            <img src={appIconUrl} alt="" aria-hidden="true" />
+          </div>
           <div className="min-w-0">
             <p className="app-brand-title">{messages.appShell.brandTitle}</p>
-            <p className="app-brand-subtitle">{messages.appShell.brandSubtitle}</p>
           </div>
         </div>
 
