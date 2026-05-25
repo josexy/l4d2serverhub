@@ -42,6 +42,7 @@ Run commands from the repository root unless a command explicitly sets a manifes
 - Run frontend only: `npm run dev`
 - Run the Tauri desktop app: `npm run tauri dev`
 - Build frontend: `npm run build`
+- Build the Tauri desktop app bundle: `npm run tauri build`
 - Preview frontend build: `npm run preview`
 - Run Rust tests: `cargo test --manifest-path src-tauri/Cargo.toml`
 - Check Rust formatting: `cargo fmt --manifest-path src-tauri/Cargo.toml --check`
