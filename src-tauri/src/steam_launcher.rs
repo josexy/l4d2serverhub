@@ -43,11 +43,10 @@ pub fn parse_server_address(address: &str) -> AppResult<ServerAddress> {
 }
 
 pub fn launch(address: &str) -> AppResult<()> {
-    let _url = build_steam_connect_url(address)?;
+    let url = build_steam_connect_url(address)?;
     log::info!("validated Steam launch address '{}'", address.trim());
-    // tauri_plugin_opener::open_url(url, None::<&str>)
-    //     .map_err(|err| AppError::LaunchFailed(err.to_string()));
-    Ok(())
+    tauri_plugin_opener::open_url(url, None::<&str>)
+        .map_err(|err| AppError::LaunchFailed(err.to_string()))
 }
 
 fn validate_host(host: &str, original_address: &str) -> AppResult<()> {
