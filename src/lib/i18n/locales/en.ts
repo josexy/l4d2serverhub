@@ -121,6 +121,21 @@ export const en = {
       searchHistoryDeleteFailed: "Could not delete the search history record.",
     },
   },
+  tableSorting: {
+    aria: {
+      sortColumn: (column: string, direction: "none" | "asc" | "desc") => {
+        if (direction === "asc") {
+          return `Sort ${column} ascending`;
+        }
+
+        if (direction === "desc") {
+          return `Sort ${column} descending`;
+        }
+
+        return `Restore default ${column} order`;
+      },
+    },
+  },
   serverTable: {
     columns: {
       favorite: "Favorite",

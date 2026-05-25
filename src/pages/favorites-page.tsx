@@ -24,6 +24,7 @@ import {
 
 import { FavoriteEditorDialog } from "@/components/favorite-editor-dialog";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
+import { SortableTableHead } from "@/components/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,6 +57,13 @@ import { api, formatCommandError } from "@/lib/api";
 import { useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
+import {
+  createDefaultSortState,
+  nextSortState,
+  sortCurrentPage,
+  type SortValue,
+  type TableSortState,
+} from "@/lib/table-sorting";
 import { cn } from "@/lib/utils";
 import type {
   Favorite,
@@ -83,6 +91,7 @@ type FavoriteResizableColumnId =
   | "status";
 
 type FavoriteColumnWidths = Record<FavoriteResizableColumnId, number>;
+type FavoriteSortColumnId = FavoriteResizableColumnId;
 
 const DEFAULT_COLUMN_WIDTHS: FavoriteColumnWidths = {
   server: 280,
@@ -298,6 +307,13 @@ function FavoriteModeTags({
   );
 }
 
+function activeSortDirection(
+  sortState: TableSortState<FavoriteSortColumnId>,
+  columnId: FavoriteSortColumnId,
+) {
+  return sortState.column === columnId ? sortState.direction : "none";
+}
+
 type FavoritesPageProps = {
   isActive?: boolean;
 };
@@ -366,6 +382,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const [columnWidths, setColumnWidths] = useState<FavoriteColumnWidths>(
     DEFAULT_COLUMN_WIDTHS,
   );
+  const [sortState, setSortState] = useState<
+    TableSortState<FavoriteSortColumnId>
+  >(() => createDefaultSortState());
   const [resizingColumn, setResizingColumn] =
     useState<FavoriteResizableColumnId | null>(null);
   const savingFavoriteRef = useRef(false);
@@ -443,16 +462,71 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     favoritePageSize,
     favoriteQueryResult,
   ]);
+  const sortedDisplayedFavorites = useMemo(
+    () =>
+      sortCurrentPage(
+        displayedFavorites,
+        sortState,
+        (favorite, column): SortValue => {
+          const snapshot = favorite.lastSnapshot;
+
+          switch (column) {
+            case "server":
+              return displayFavoriteName(favorite);
+            case "address":
+              return displayFavoriteAddress(favorite);
+            case "map":
+              return snapshot?.map;
+            case "players":
+              return snapshot?.players;
+            case "ping":
+              return snapshot?.pingMs;
+            case "tags":
+              return favoriteTags(favorite)
+                .map(
+                  (tag) =>
+                    (messages.serverDetail.modeLabels as Record<string, string>)[
+                      tag
+                    ] ?? tag,
+                )
+                .join(", ");
+            case "status": {
+              const status = getFavoriteStatus(
+                favorite,
+                refreshingFavoriteIds.has(favorite.id) ||
+                  loadingDetailFavoriteId === favorite.id,
+                favoriteRefreshErrors.get(favorite.id),
+                messages.serverTable.statuses,
+                messages.common.refreshing,
+              );
+              return status?.label;
+            }
+          }
+        },
+      ),
+    [
+      displayedFavorites,
+      favoriteRefreshErrors,
+      loadingDetailFavoriteId,
+      messages.common.refreshing,
+      messages.serverDetail.modeLabels,
+      messages.serverTable.statuses,
+      refreshingFavoriteIds,
+      sortState,
+    ],
+  );
   const currentFavoriteIds = useMemo(
-    () => new Set(displayedFavorites.map((favorite) => favorite.id)),
-    [displayedFavorites],
+    () => new Set(sortedDisplayedFavorites.map((favorite) => favorite.id)),
+    [sortedDisplayedFavorites],
   );
   const selectedCurrentCount = [...selectedFavoriteIds].filter((id) =>
     currentFavoriteIds.has(id),
   ).length;
   const allCurrentSelected =
-    displayedFavorites.length > 0 &&
-    displayedFavorites.every((favorite) => selectedFavoriteIds.has(favorite.id));
+    sortedDisplayedFavorites.length > 0 &&
+    sortedDisplayedFavorites.every((favorite) =>
+      selectedFavoriteIds.has(favorite.id),
+    );
   const selectionChecked = allCurrentSelected
     ? true
     : selectedCurrentCount > 0
@@ -1093,9 +1167,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     setSelectedFavoriteIds((current) => {
       const next = new Set(current);
       if (checked === true) {
-        displayedFavorites.forEach((favorite) => next.add(favorite.id));
+        sortedDisplayedFavorites.forEach((favorite) => next.add(favorite.id));
       } else {
-        displayedFavorites.forEach((favorite) => next.delete(favorite.id));
+        sortedDisplayedFavorites.forEach((favorite) => next.delete(favorite.id));
       }
       return next;
     });
@@ -1137,6 +1211,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       startWidth: columnWidths[columnId],
     };
     setResizingColumn(columnId);
+  };
+
+  const handleSort = (columnId: FavoriteSortColumnId) => {
+    setSortState((current) => nextSortState(current, columnId));
   };
 
   const handleDetailOpenChange = (open: boolean) => {
@@ -1395,62 +1473,104 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                             onCheckedChange={toggleSelectAll}
                           />
                         </TableHead>
-                        <TableHead className="relative select-none pr-3">
-                          {messages.favorites.columns.server}
+                        <SortableTableHead
+                          label={messages.favorites.columns.server}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "server",
+                          )}
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("server")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "server")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3">
-                          {messages.favorites.columns.address}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.favorites.columns.address}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "address",
+                          )}
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("address")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "address")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3">
-                          {messages.serverTable.columns.map}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.serverTable.columns.map}
+                          activeDirection={activeSortDirection(sortState, "map")}
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("map")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "map")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3 text-right">
-                          {messages.serverTable.columns.players}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.serverTable.columns.players}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "players",
+                          )}
+                          align="right"
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("players")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "players")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3 text-right">
-                          {messages.serverTable.columns.ping}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.serverTable.columns.ping}
+                          activeDirection={activeSortDirection(sortState, "ping")}
+                          align="right"
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("ping")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "ping")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3">
-                          {messages.favorites.columns.tags}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.favorites.columns.tags}
+                          activeDirection={activeSortDirection(sortState, "tags")}
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("tags")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "tags")
                             }
                           />
-                        </TableHead>
-                        <TableHead className="relative select-none pr-3">
-                          {messages.serverTable.columns.status}
+                        </SortableTableHead>
+                        <SortableTableHead
+                          label={messages.serverTable.columns.status}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "status",
+                          )}
+                          getSortLabel={messages.tableSorting.aria.sortColumn}
+                          onSort={() => handleSort("status")}
+                        >
                           <ResizeHandle
                             onPointerDown={(event) =>
                               startColumnResize(event, "status")
                             }
                           />
-                        </TableHead>
+                        </SortableTableHead>
                         <TableHead
                           className="w-28 text-right"
                           aria-label={messages.favorites.columns.actions}
@@ -1458,7 +1578,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {displayedFavorites.map((favorite) => {
+                      {sortedDisplayedFavorites.map((favorite) => {
                         const favoriteName = displayFavoriteName(favorite);
                         const favoriteAddress = displayFavoriteAddress(favorite);
                         const isDeleting = deletingFavoriteIds.has(favorite.id);

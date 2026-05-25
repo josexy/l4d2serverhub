@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { useI18n } from "@/lib/app-preferences";
+import { SortableTableHead } from "@/components/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -28,6 +29,13 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
+import {
+  createDefaultSortState,
+  nextSortState,
+  sortCurrentPage,
+  type SortValue,
+  type TableSortState,
+} from "@/lib/table-sorting";
 import type { ServerSnapshot } from "@/lib/types";
 
 type ServerTableProps = {
@@ -54,6 +62,7 @@ type ResizableColumnId =
   | "status";
 
 type ColumnWidths = Record<ResizableColumnId, number>;
+type ServerSortColumnId = ResizableColumnId;
 
 const FAVORITE_COLUMN_WIDTH = 44;
 const CONNECT_COLUMN_WIDTH = 108;
@@ -125,6 +134,13 @@ function ServerTags({
   );
 }
 
+function activeSortDirection(
+  sortState: TableSortState<ServerSortColumnId>,
+  columnId: ServerSortColumnId,
+) {
+  return sortState.column === columnId ? sortState.direction : "none";
+}
+
 function ResizeHandle({
   onPointerDown,
 }: {
@@ -157,6 +173,9 @@ export function ServerTable({
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(
     DEFAULT_COLUMN_WIDTHS,
   );
+  const [sortState, setSortState] = useState<
+    TableSortState<ServerSortColumnId>
+  >(() => createDefaultSortState());
   const [resizingColumn, setResizingColumn] = useState<ResizableColumnId | null>(
     null,
   );
@@ -222,6 +241,36 @@ export function ServerTable({
     [columnWidths],
   );
 
+  const sortedServers = useMemo(
+    () =>
+      sortCurrentPage(servers, sortState, (server, column): SortValue => {
+        switch (column) {
+          case "name":
+            return server.name;
+          case "address":
+            return server.address;
+          case "map":
+            return server.map;
+          case "players":
+            return server.players;
+          case "ping":
+            return server.pingMs;
+          case "tags":
+            return getDisplayModeTags(server.modeTags)
+              .map((tag) => messages.filterToolbar.modeLabels[tag] ?? tag)
+              .join(", ");
+          case "status":
+            return getStatus(server, messages.serverTable.statuses).label;
+        }
+      }),
+    [
+      messages.filterToolbar.modeLabels,
+      messages.serverTable.statuses,
+      servers,
+      sortState,
+    ],
+  );
+
   const startColumnResize = (
     event: ReactPointerEvent<HTMLDivElement>,
     columnId: ResizableColumnId,
@@ -234,6 +283,10 @@ export function ServerTable({
       startWidth: columnWidths[columnId],
     };
     setResizingColumn(columnId);
+  };
+
+  const handleSort = (columnId: ServerSortColumnId) => {
+    setSortState((current) => nextSortState(current, columnId));
   };
 
   if (error && servers.length === 0) {
@@ -288,48 +341,78 @@ export function ServerTable({
               className="w-11"
               aria-label={messages.serverTable.columns.favorite}
             />
-            <TableHead className="relative select-none pr-3">
-              {messages.serverTable.columns.name}
+            <SortableTableHead
+              label={messages.serverTable.columns.name}
+              activeDirection={activeSortDirection(sortState, "name")}
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("name")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "name")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3">
-              {messages.serverTable.columns.address}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.address}
+              activeDirection={activeSortDirection(sortState, "address")}
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("address")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "address")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3">
-              {messages.serverTable.columns.map}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.map}
+              activeDirection={activeSortDirection(sortState, "map")}
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("map")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "map")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3 text-right">
-              {messages.serverTable.columns.players}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.players}
+              activeDirection={activeSortDirection(sortState, "players")}
+              align="right"
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("players")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "players")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3 text-right">
-              {messages.serverTable.columns.ping}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.ping}
+              activeDirection={activeSortDirection(sortState, "ping")}
+              align="right"
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("ping")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "ping")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3">
-              {messages.serverTable.columns.tags}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.tags}
+              activeDirection={activeSortDirection(sortState, "tags")}
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("tags")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "tags")}
               />
-            </TableHead>
-            <TableHead className="relative select-none pr-3">
-              {messages.serverTable.columns.status}
+            </SortableTableHead>
+            <SortableTableHead
+              label={messages.serverTable.columns.status}
+              activeDirection={activeSortDirection(sortState, "status")}
+              getSortLabel={messages.tableSorting.aria.sortColumn}
+              onSort={() => handleSort("status")}
+            >
               <ResizeHandle
                 onPointerDown={(event) => startColumnResize(event, "status")}
               />
-            </TableHead>
+            </SortableTableHead>
             <TableHead
               className="w-[108px] text-center"
               aria-label={messages.serverTable.columns.connect}
@@ -339,7 +422,7 @@ export function ServerTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {servers.map((server) => {
+          {sortedServers.map((server) => {
             const status = getStatus(server, messages.serverTable.statuses);
             const isFavorite = favoriteAddresses.has(server.address);
             const isFavoritePending = pendingFavoriteAddresses.has(server.address);

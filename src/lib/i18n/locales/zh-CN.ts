@@ -123,6 +123,21 @@ export const zhCn: Messages = {
       searchHistoryDeleteFailed: "无法删除搜索历史记录。",
     },
   },
+  tableSorting: {
+    aria: {
+      sortColumn: (column: string, direction: "none" | "asc" | "desc") => {
+        if (direction === "asc") {
+          return `按 ${column} 升序排序`;
+        }
+
+        if (direction === "desc") {
+          return `按 ${column} 降序排序`;
+        }
+
+        return `恢复 ${column} 默认排序`;
+      },
+    },
+  },
   serverTable: {
     columns: {
       favorite: "收藏",

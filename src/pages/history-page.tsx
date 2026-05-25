@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { ServerDetailPanel } from "@/components/server-detail-panel";
+import { SortableTableHead } from "@/components/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -48,6 +49,13 @@ import { HISTORY_UPDATED_EVENT, api, formatCommandError } from "@/lib/api";
 import { useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
+import {
+  createDefaultSortState,
+  nextSortState,
+  sortCurrentPage,
+  type SortValue,
+  type TableSortState,
+} from "@/lib/table-sorting";
 import { cn } from "@/lib/utils";
 import type {
   Favorite,
@@ -75,6 +83,7 @@ type HistoryResizableColumnId =
   | "connected";
 
 type HistoryColumnWidths = Record<HistoryResizableColumnId, number>;
+type HistorySortColumnId = HistoryResizableColumnId;
 
 type HistoryServerRow = {
   key: string;
@@ -319,6 +328,13 @@ function getHistoryStatus(
   return { label: labels.open, variant: "default" as const };
 }
 
+function activeSortDirection(
+  sortState: TableSortState<HistorySortColumnId>,
+  columnId: HistorySortColumnId,
+) {
+  return sortState.column === columnId ? sortState.direction : "none";
+}
+
 function dedupeHistoryRows(history: HistoryRecord[]): HistoryServerRow[] {
   const rows: HistoryServerRow[] = [];
   const rowIndexByKey = new Map<string, number>();
@@ -439,6 +455,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const [columnWidths, setColumnWidths] = useState<HistoryColumnWidths>(
     DEFAULT_COLUMN_WIDTHS,
   );
+  const [sortState, setSortState] = useState<TableSortState<HistorySortColumnId>>(
+    () => createDefaultSortState(),
+  );
   const [resizingColumn, setResizingColumn] =
     useState<HistoryResizableColumnId | null>(null);
   const pendingConnectAddressRef = useRef<string | null>(null);
@@ -471,6 +490,54 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     const start = (historyPage - 1) * historyPageSize;
     return rows.slice(start, start + historyPageSize);
   }, [historyPage, historyPageSize, historyQueryResult, rowByAddress, rows]);
+  const sortedDisplayedRows = useMemo(
+    () =>
+      sortCurrentPage(displayedRows, sortState, (row, column): SortValue => {
+        switch (column) {
+          case "server":
+            return row.name;
+          case "address":
+            return row.address;
+          case "map":
+            return row.snapshot?.map || row.latest.map;
+          case "players":
+            return row.snapshot?.players ?? row.latest.players;
+          case "ping":
+            return row.snapshot?.pingMs;
+          case "tags":
+            return (row.snapshot?.modeTags ?? [])
+              .map(
+                (tag) =>
+                  (messages.serverDetail.modeLabels as Record<string, string>)[
+                    tag
+                  ] ?? tag,
+              )
+              .join(", ");
+          case "status": {
+            const status = getHistoryStatus(
+              row.snapshot,
+              refreshingHistoryKeys.has(row.key) || loadingDetailKey === row.key,
+              historyRefreshErrors.get(row.key),
+              messages.serverTable.statuses,
+              messages.common.refreshing,
+            );
+            return status?.label;
+          }
+          case "connected":
+            return new Date(row.latest.connectedAt);
+        }
+      }),
+    [
+      displayedRows,
+      historyRefreshErrors,
+      loadingDetailKey,
+      messages.common.refreshing,
+      messages.serverDetail.modeLabels,
+      messages.serverTable.statuses,
+      refreshingHistoryKeys,
+      sortState,
+    ],
+  );
   const favoriteAddresses = useMemo(
     () => new Set(favorites.map((favorite) => favorite.address)),
     [favorites],
@@ -479,16 +546,16 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     groups.find((group) => group.id === FALLBACK_GROUP_ID)?.id ??
     FALLBACK_GROUP_ID;
   const currentRowKeys = useMemo(
-    () => new Set(displayedRows.map((row) => row.key)),
-    [displayedRows],
+    () => new Set(sortedDisplayedRows.map((row) => row.key)),
+    [sortedDisplayedRows],
   );
-  const selectedCurrentRows = displayedRows.filter((row) =>
+  const selectedCurrentRows = sortedDisplayedRows.filter((row) =>
     selectedHistoryKeys.has(row.key),
   );
   const selectedCurrentCount = selectedCurrentRows.length;
   const allCurrentSelected =
-    displayedRows.length > 0 &&
-    displayedRows.every((row) => selectedHistoryKeys.has(row.key));
+    sortedDisplayedRows.length > 0 &&
+    sortedDisplayedRows.every((row) => selectedHistoryKeys.has(row.key));
   const selectionChecked = allCurrentSelected
     ? true
     : selectedCurrentCount > 0
@@ -1056,9 +1123,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     setSelectedHistoryKeys((current) => {
       const next = new Set(current);
       if (checked === true) {
-        displayedRows.forEach((row) => next.add(row.key));
+        sortedDisplayedRows.forEach((row) => next.add(row.key));
       } else {
-        displayedRows.forEach((row) => next.delete(row.key));
+        sortedDisplayedRows.forEach((row) => next.delete(row.key));
       }
       return next;
     });
@@ -1099,6 +1166,10 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       startWidth: columnWidths[columnId],
     };
     setResizingColumn(columnId);
+  };
+
+  const handleSort = (columnId: HistorySortColumnId) => {
+    setSortState((current) => nextSortState(current, columnId));
   };
 
   const handleDetailOpenChange = (open: boolean) => {
@@ -1218,54 +1289,88 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.history.columns.server}
+                  <SortableTableHead
+                    label={messages.history.columns.server}
+                    activeDirection={activeSortDirection(sortState, "server")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("server")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "server")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.history.columns.address}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.history.columns.address}
+                    activeDirection={activeSortDirection(sortState, "address")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("address")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "address")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.serverTable.columns.map}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.serverTable.columns.map}
+                    activeDirection={activeSortDirection(sortState, "map")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("map")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "map")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3 text-right">
-                    {messages.serverTable.columns.players}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.serverTable.columns.players}
+                    activeDirection={activeSortDirection(sortState, "players")}
+                    align="right"
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("players")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "players")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3 text-right">
-                    {messages.serverTable.columns.ping}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.serverTable.columns.ping}
+                    activeDirection={activeSortDirection(sortState, "ping")}
+                    align="right"
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("ping")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "ping")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.serverTable.columns.tags}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.serverTable.columns.tags}
+                    activeDirection={activeSortDirection(sortState, "tags")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("tags")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "tags")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.serverTable.columns.status}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.serverTable.columns.status}
+                    activeDirection={activeSortDirection(sortState, "status")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("status")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "status")}
                     />
-                  </TableHead>
-                  <TableHead className="relative select-none pr-3">
-                    {messages.history.columns.connected}
+                  </SortableTableHead>
+                  <SortableTableHead
+                    label={messages.history.columns.connected}
+                    activeDirection={activeSortDirection(sortState, "connected")}
+                    getSortLabel={messages.tableSorting.aria.sortColumn}
+                    onSort={() => handleSort("connected")}
+                  >
                     <ResizeHandle
                       onPointerDown={(event) => startColumnResize(event, "connected")}
                     />
-                  </TableHead>
+                  </SortableTableHead>
                   <TableHead
                     className="w-28 text-right"
                     aria-label={messages.history.columns.actions}
@@ -1273,7 +1378,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayedRows.map((row) => {
+                {sortedDisplayedRows.map((row) => {
                   const isFavorite = favoriteAddresses.has(row.address);
                   const isDeleting = row.records.some((record) =>
                     deletingIds.has(record.id),
