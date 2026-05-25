@@ -26,11 +26,12 @@ use std::{
 use tauri::{Listener, LogicalSize, Manager};
 use tauri_plugin_log::{Target, TargetKind};
 use tokio::sync::OnceCell;
-use upstream_api::UpstreamApiConfig;
+use upstream_api::{UpstreamApiConfig, UpstreamClientCache};
 
 pub struct AppState {
     pub pool: SqlitePool,
     pub upstream_config: Arc<OnceCell<UpstreamApiConfig>>,
+    pub upstream_client_cache: UpstreamClientCache,
     pub log_state: Arc<LogState>,
 }
 
@@ -245,6 +246,7 @@ pub fn run() {
             app.manage(Arc::new(AppState {
                 pool,
                 upstream_config,
+                upstream_client_cache: UpstreamClientCache::default(),
                 log_state,
             }));
 

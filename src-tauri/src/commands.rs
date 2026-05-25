@@ -4,7 +4,7 @@ use crate::models::{
     AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, SearchHistoryRecord,
     ServerDetails, ServerFilters, ServerQueryParams, ServerQueryResult, ServerSnapshot, ServerSort,
 };
-use crate::upstream_api::{HttpUpstreamServerClient, UpstreamApiConfig, UpstreamServerClient};
+use crate::upstream_api::{UpstreamApiConfig, UpstreamClientCache, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
 use crate::{steam_launcher, SharedState};
 use sqlx::SqlitePool;
@@ -38,7 +38,13 @@ pub async fn query_servers(
 ) -> CommandResult<ServerQueryResult> {
     command_result(
         "query_servers",
-        query_servers_impl(&state.pool, &state.upstream_config, params).await,
+        query_servers_impl(
+            &state.pool,
+            &state.upstream_config,
+            &state.upstream_client_cache,
+            params,
+        )
+        .await,
     )
 }
 
@@ -54,6 +60,7 @@ pub async fn get_server_details(
         get_server_details_impl(
             &state.pool,
             &state.upstream_config,
+            &state.upstream_client_cache,
             &address,
             server_id.as_deref(),
             fallback_name.as_deref(),
@@ -276,6 +283,7 @@ pub async fn clear_log_files(app: AppHandle) -> CommandResult<u32> {
 async fn query_servers_impl(
     pool: &SqlitePool,
     upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
+    upstream_client_cache: &UpstreamClientCache,
     params: ServerQueryParams,
 ) -> AppResult<ServerQueryResult> {
     let settings = settings_store::get_settings(pool).await?;
@@ -287,11 +295,13 @@ async fn query_servers_impl(
         params.addresses.as_ref().map_or(0, Vec::len)
     );
     let upstream_config = upstream_config_for_request(pool, upstream_config).await;
-    let client = HttpUpstreamServerClient::with_config_and_proxy(
-        Duration::from_millis(settings.query_timeout_ms),
-        upstream_config,
-        &settings.http_proxy,
-    )?;
+    let client = upstream_client_cache
+        .get_or_create(
+            Duration::from_millis(settings.query_timeout_ms),
+            upstream_config,
+            &settings.http_proxy,
+        )
+        .await?;
 
     query_servers_with_client(params, &client).await
 }
@@ -349,17 +359,20 @@ fn sort_query_result_items(result: &mut ServerQueryResult, sort: &crate::models:
 async fn get_server_details_impl(
     pool: &SqlitePool,
     upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
+    upstream_client_cache: &UpstreamClientCache,
     address: &str,
     server_id: Option<&str>,
     fallback_name: Option<&str>,
 ) -> AppResult<ServerDetails> {
     let settings = settings_store::get_settings(pool).await?;
     let upstream_config = upstream_config_for_request(pool, upstream_config).await;
-    let client = HttpUpstreamServerClient::with_config_and_proxy(
-        Duration::from_millis(settings.query_timeout_ms),
-        upstream_config,
-        &settings.http_proxy,
-    )?;
+    let client = upstream_client_cache
+        .get_or_create(
+            Duration::from_millis(settings.query_timeout_ms),
+            upstream_config,
+            &settings.http_proxy,
+        )
+        .await?;
 
     get_server_details_with_client(address, server_id, &client, fallback_name).await
 }

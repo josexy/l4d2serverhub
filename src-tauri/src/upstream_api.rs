@@ -32,7 +32,7 @@ pub trait UpstreamServerClient: Send + Sync {
     ) -> AppResult<ServerDetails>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamApiConfig {
     pub post_url: String,
     pub public_servers_url: String,
@@ -59,6 +59,49 @@ impl Default for UpstreamApiConfig {
 pub struct HttpUpstreamServerClient {
     client: reqwest::Client,
     config: UpstreamApiConfig,
+}
+
+#[derive(Default)]
+pub struct UpstreamClientCache {
+    cached: tokio::sync::Mutex<Option<CachedUpstreamClient>>,
+}
+
+#[derive(Clone)]
+struct CachedUpstreamClient {
+    timeout: Duration,
+    config: UpstreamApiConfig,
+    http_proxy: HttpProxySettings,
+    client: HttpUpstreamServerClient,
+}
+
+impl UpstreamClientCache {
+    pub async fn get_or_create(
+        &self,
+        timeout: Duration,
+        config: UpstreamApiConfig,
+        http_proxy: &HttpProxySettings,
+    ) -> AppResult<HttpUpstreamServerClient> {
+        let mut cached = self.cached.lock().await;
+        if let Some(entry) = cached.as_ref() {
+            if entry.timeout == timeout && entry.config == config && entry.http_proxy == *http_proxy
+            {
+                log::debug!("reusing cached upstream HTTP client");
+                return Ok(entry.client.clone());
+            }
+        }
+
+        log::debug!("building upstream HTTP client for current settings");
+        let client =
+            HttpUpstreamServerClient::with_config_and_proxy(timeout, config.clone(), http_proxy)?;
+        *cached = Some(CachedUpstreamClient {
+            timeout,
+            config,
+            http_proxy: http_proxy.clone(),
+            client: client.clone(),
+        });
+
+        Ok(client)
+    }
 }
 
 impl HttpUpstreamServerClient {
