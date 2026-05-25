@@ -6,7 +6,6 @@ import {
   useState,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
-  type UIEvent,
 } from "react";
 import {
   ChevronLeft,
@@ -69,8 +68,6 @@ import type {
 const DEFAULT_GROUP_ID = "default";
 const DEFAULT_ADDRESS_PAGE_SIZE = 50;
 const ADDRESS_PAGE_SIZE_OPTIONS = [25, 50, 100];
-const FAVORITE_ROW_HEIGHT = 46;
-const FAVORITE_ROW_OVERSCAN = 8;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
 const SELECT_COLUMN_WIDTH = 44;
@@ -371,8 +368,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   );
   const [resizingColumn, setResizingColumn] =
     useState<FavoriteResizableColumnId | null>(null);
-  const [tableScrollTop, setTableScrollTop] = useState(0);
-  const [tableViewportHeight, setTableViewportHeight] = useState(0);
   const savingFavoriteRef = useRef(false);
   const creatingGroupRef = useRef(false);
   const deletingFavoriteIdsRef = useRef<Set<string>>(new Set());
@@ -381,7 +376,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const selectedDetailFavoriteIdRef = useRef<string | null>(null);
   const refreshRunIdRef = useRef(0);
   const refreshingDetailsRef = useRef(false);
-  const tableViewportRef = useRef<HTMLDivElement | null>(null);
   const activeSidebarResizeRef = useRef<{
     startX: number;
     startWidth: number;
@@ -483,35 +477,8 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       Object.values(columnWidths).reduce((total, width) => total + width, 0),
     [columnWidths],
   );
-  const visibleStartIndex = Math.max(
-    0,
-    Math.floor(tableScrollTop / FAVORITE_ROW_HEIGHT) - FAVORITE_ROW_OVERSCAN,
-  );
-  const visibleFavoriteCount =
-    Math.ceil(tableViewportHeight / FAVORITE_ROW_HEIGHT) +
-    FAVORITE_ROW_OVERSCAN * 2;
-  const visibleEndIndex = Math.min(
-    displayedFavorites.length,
-    visibleStartIndex + visibleFavoriteCount,
-  );
-  const visibleFavorites = displayedFavorites.slice(
-    visibleStartIndex,
-    visibleEndIndex,
-  );
-  const topSpacerHeight = visibleStartIndex * FAVORITE_ROW_HEIGHT;
-  const bottomSpacerHeight =
-    (displayedFavorites.length - visibleEndIndex) * FAVORITE_ROW_HEIGHT;
-
-  const resetTableScroll = useCallback(() => {
-    const viewport = tableViewportRef.current;
-    if (viewport) {
-      viewport.scrollTop = 0;
-    }
-    setTableScrollTop(0);
-  }, []);
 
   const loadFavorites = useCallback(async () => {
-    resetTableScroll();
     setLoading(true);
     setError(null);
 
@@ -523,7 +490,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       setGroups(normalizeGroups(groupsResult, fallbackDefaultGroup));
       setFavorites(favoritesResult);
       setFavoriteQueryResult(null);
-      resetTableScroll();
     } catch (loadError) {
       const message = formatCommandError(
         loadError,
@@ -534,11 +500,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     } finally {
       setLoading(false);
     }
-  }, [
-    fallbackDefaultGroup,
-    messages.favorites.toasts.loadFailed,
-    resetTableScroll,
-  ]);
+  }, [fallbackDefaultGroup, messages.favorites.toasts.loadFailed]);
 
   useEffect(() => {
     if (!isActive) {
@@ -564,33 +526,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   }, [currentFavoriteIds]);
 
   useEffect(() => {
-    const viewport = tableViewportRef.current;
-    if (!viewport) {
-      return;
-    }
-
-    const updateViewportHeight = () => {
-      setTableViewportHeight(viewport.clientHeight);
-    };
-
-    updateViewportHeight();
-    const observer = new ResizeObserver(updateViewportHeight);
-    observer.observe(viewport);
-
-    return () => observer.disconnect();
-  }, [displayedFavorites.length]);
-
-  useEffect(() => {
-    const viewport = tableViewportRef.current;
-    if (!viewport) {
-      resetTableScroll();
-      return;
-    }
-
-    resetTableScroll();
     setFavoritePage(1);
     setFavoriteQueryResult(null);
-  }, [resetTableScroll, selectedGroup.id]);
+  }, [selectedGroup.id]);
 
   useEffect(() => {
     setFavoritePage((current) => Math.min(current, favoriteTotalPages));
@@ -1201,10 +1139,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     setResizingColumn(columnId);
   };
 
-  const handleTableScroll = (event: UIEvent<HTMLDivElement>) => {
-    setTableScrollTop(event.currentTarget.scrollTop);
-  };
-
   const handleDetailOpenChange = (open: boolean) => {
     setDetailOpen(open);
     if (!open) {
@@ -1432,11 +1366,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                   </div>
                 </div>
               ) : (
-                <div
-                  ref={tableViewportRef}
-                  className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
-                  onScroll={handleTableScroll}
-                >
+                <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
                   <table
                     data-slot="table"
                     className="w-full table-fixed caption-bottom text-sm"
@@ -1528,16 +1458,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {topSpacerHeight > 0 ? (
-                        <TableRow aria-hidden="true">
-                          <TableCell
-                            colSpan={9}
-                            className="border-0 p-0"
-                            style={{ height: `${topSpacerHeight}px` }}
-                          />
-                        </TableRow>
-                      ) : null}
-                      {visibleFavorites.map((favorite) => {
+                      {displayedFavorites.map((favorite) => {
                         const favoriteName = displayFavoriteName(favorite);
                         const favoriteAddress = displayFavoriteAddress(favorite);
                         const isDeleting = deletingFavoriteIds.has(favorite.id);
@@ -1559,8 +1480,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         return (
                           <TableRow
                             key={favorite.id}
-                            className="cursor-pointer"
-                            style={{ height: `${FAVORITE_ROW_HEIGHT}px` }}
+                            className="h-11 cursor-pointer"
                             onClick={() => void openFavoriteDetails(favorite)}
                           >
                             <TableCell
@@ -1685,15 +1605,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                           </TableRow>
                         );
                       })}
-                      {bottomSpacerHeight > 0 ? (
-                        <TableRow aria-hidden="true">
-                          <TableCell
-                            colSpan={9}
-                            className="border-0 p-0"
-                            style={{ height: `${bottomSpacerHeight}px` }}
-                          />
-                        </TableRow>
-                      ) : null}
                     </TableBody>
                   </table>
                 </div>
