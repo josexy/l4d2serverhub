@@ -24,16 +24,30 @@ pub struct BackupPayload {
 }
 
 pub async fn export_data(pool: &SqlitePool) -> AppResult<BackupPayload> {
-    Ok(BackupPayload {
+    log::info!("exporting local data");
+    let payload = BackupPayload {
         version: BACKUP_VERSION,
         settings: settings_store::get_settings(pool).await?,
         groups: favorites_store::list_groups(pool).await?,
         favorites: favorites_store::list_favorites(pool).await?,
         history: history_store::list_history(pool).await?,
-    })
+    };
+    log::info!(
+        "exported local data: groups={}, favorites={}, history={}",
+        payload.groups.len(),
+        payload.favorites.len(),
+        payload.history.len()
+    );
+    Ok(payload)
 }
 
 pub async fn import_data(pool: &SqlitePool, payload: BackupPayload) -> AppResult<BackupPayload> {
+    log::info!(
+        "importing local data: groups={}, favorites={}, history={}",
+        payload.groups.len(),
+        payload.favorites.len(),
+        payload.history.len()
+    );
     validate_payload_version(&payload)?;
     validate_favorite_addresses(&payload)?;
     validate_favorite_snapshots(&payload)?;
@@ -54,7 +68,14 @@ pub async fn import_data(pool: &SqlitePool, payload: BackupPayload) -> AppResult
 
     tx.commit().await.map_err(database_error)?;
 
-    export_data(pool).await
+    let imported = export_data(pool).await?;
+    log::info!(
+        "imported local data: groups={}, favorites={}, history={}",
+        imported.groups.len(),
+        imported.favorites.len(),
+        imported.history.len()
+    );
+    Ok(imported)
 }
 
 fn validate_payload_version(payload: &BackupPayload) -> AppResult<()> {
@@ -226,6 +247,7 @@ where
             "language",
             "serverBrowser",
             "httpProxy",
+            "logging",
         ],
     )?;
 
@@ -235,6 +257,10 @@ where
             "settings.httpProxy",
             &["mode", "customUrl"],
         )?;
+    }
+
+    if let Some(logging) = value.get("logging") {
+        require_object_fields::<D::Error>(logging, "settings.logging", &["enabled", "level"])?;
     }
 
     let server_browser = value

@@ -2,7 +2,7 @@ use chrono::Utc;
 use l4d2_server_hub_lib::errors::AppError;
 use l4d2_server_hub_lib::import_export::{export_data, import_data, BackupPayload};
 use l4d2_server_hub_lib::models::{
-    AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, HttpProxyMode,
+    AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, HttpProxyMode, LogLevel,
     ServerSnapshot, ServerSnapshotInput,
 };
 
@@ -166,6 +166,7 @@ async fn backup_payload_round_trips_between_databases() {
         .as_object()
         .expect("settings should be an object");
     assert!(exported_settings.contains_key("httpProxy"));
+    assert!(exported_settings.contains_key("logging"));
     assert!(!exported_settings.contains_key("defaultPageSize"));
     assert!(!exported_settings.contains_key("autoRefreshEnabled"));
     assert!(!exported_settings.contains_key("autoRefreshIntervalSec"));
@@ -179,6 +180,8 @@ async fn backup_payload_round_trips_between_databases() {
         imported.settings.http_proxy.mode,
         HttpProxyMode::System
     ));
+    assert!(!imported.settings.logging.enabled);
+    assert!(matches!(imported.settings.logging.level, LogLevel::Info));
     assert_eq!(imported.groups.len(), exported.groups.len());
     assert!(imported
         .groups
@@ -593,6 +596,67 @@ fn backup_payload_deserialization_backfills_missing_http_proxy() {
         HttpProxyMode::System
     ));
     assert_eq!(payload.settings.http_proxy.custom_url, "");
+}
+
+#[test]
+fn backup_payload_deserialization_backfills_missing_logging() {
+    let payload = BackupPayload {
+        version: 1,
+        settings: AppSettings::default(),
+        groups: vec![default_group()],
+        favorites: Vec::new(),
+        history: Vec::new(),
+    };
+    let mut value = serde_json::to_value(payload).unwrap();
+    value["settings"]
+        .as_object_mut()
+        .expect("settings should be an object")
+        .remove("logging");
+
+    let payload = serde_json::from_value::<BackupPayload>(value)
+        .expect("missing logging should be accepted for old backups");
+
+    assert!(!payload.settings.logging.enabled);
+    assert!(matches!(payload.settings.logging.level, LogLevel::Info));
+}
+
+#[test]
+fn backup_payload_deserialization_rejects_partial_logging() {
+    let payload = BackupPayload {
+        version: 1,
+        settings: AppSettings::default(),
+        groups: vec![default_group()],
+        favorites: Vec::new(),
+        history: Vec::new(),
+    };
+    let mut value = serde_json::to_value(payload).unwrap();
+    value["settings"]["logging"]
+        .as_object_mut()
+        .expect("logging should be an object")
+        .remove("level");
+
+    let error = serde_json::from_value::<BackupPayload>(value)
+        .expect_err("partial logging should be rejected");
+
+    assert!(error.to_string().contains("settings.logging.level"));
+}
+
+#[test]
+fn backup_payload_deserialization_rejects_invalid_logging_level() {
+    let payload = BackupPayload {
+        version: 1,
+        settings: AppSettings::default(),
+        groups: vec![default_group()],
+        favorites: Vec::new(),
+        history: Vec::new(),
+    };
+    let mut value = serde_json::to_value(payload).unwrap();
+    value["settings"]["logging"]["level"] = serde_json::json!("verbose");
+
+    let error = serde_json::from_value::<BackupPayload>(value)
+        .expect_err("invalid logging level should be rejected");
+
+    assert!(error.to_string().contains("verbose"));
 }
 
 #[test]

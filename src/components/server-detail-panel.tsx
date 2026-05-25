@@ -160,19 +160,19 @@ export function ServerDetailPanel({
   isFavorite,
 }: ServerDetailPanelProps) {
   const { messages } = useI18n();
-  const activeServerIdRef = useRef<string | null>(null);
+  const activeAddressRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
   const [details, setDetails] = useState<ServerDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    activeServerIdRef.current = open ? server?.serverId ?? null : null;
+    activeAddressRef.current = open ? server?.address ?? null : null;
     requestIdRef.current += 1;
     setDetails(null);
     setLoading(false);
     setError(null);
-  }, [open, server?.serverId]);
+  }, [open, server?.address]);
 
   const snapshot = details?.snapshot ?? server;
   const { metadataLabels, playerColumns } = messages.serverDetail;
@@ -185,26 +185,27 @@ export function ServerDetailPanel({
       : details?.players ?? [];
 
   const loadDetails = async (showToast: boolean) => {
-    if (!open || !server?.serverId) {
+    if (!open || !server?.address) {
       setError(messages.serverDetail.snapshotUnavailable);
       return;
     }
 
+    const requestAddress = server.address;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    activeServerIdRef.current = server.serverId;
+    activeAddressRef.current = requestAddress;
     setLoading(true);
     setError(null);
 
     try {
-      const nextDetails = await api.getServerDetails(
-        server.serverId,
-        server.address,
-        server.name,
-      );
+      const nextDetails = await api.getServerDetails({
+        address: requestAddress,
+        serverId: server.serverId,
+        fallbackName: server.name,
+      });
 
       if (
-        activeServerIdRef.current !== server.serverId ||
+        activeAddressRef.current !== requestAddress ||
         requestIdRef.current !== requestId
       ) {
         return;
@@ -214,7 +215,7 @@ export function ServerDetailPanel({
       onUpdateServer(nextDetails.snapshot);
     } catch (loadError) {
       if (
-        activeServerIdRef.current !== server.serverId ||
+        activeAddressRef.current !== requestAddress ||
         requestIdRef.current !== requestId
       ) {
         return;
@@ -230,7 +231,7 @@ export function ServerDetailPanel({
       }
     } finally {
       if (
-        activeServerIdRef.current === server.serverId &&
+        activeAddressRef.current === requestAddress &&
         requestIdRef.current === requestId
       ) {
         setLoading(false);
@@ -239,12 +240,12 @@ export function ServerDetailPanel({
   };
 
   useEffect(() => {
-    if (!open || !server?.serverId) {
+    if (!open || !server?.address) {
       return;
     }
 
     void loadDetails(false);
-  }, [open, server?.serverId]);
+  }, [open, server?.address]);
 
   const copyAddress = async () => {
     if (!snapshot) {
@@ -329,7 +330,7 @@ export function ServerDetailPanel({
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={loading || !server?.serverId}
+                disabled={loading || !server?.address}
                 onClick={() => void loadDetails(true)}
               >
                 <RefreshCw data-icon="inline-start" />

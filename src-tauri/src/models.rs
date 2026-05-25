@@ -488,6 +488,8 @@ pub struct AppSettings {
     pub http_proxy: HttpProxySettings,
     #[serde(default)]
     pub server_browser: ServerBrowserSettings,
+    #[serde(default)]
+    pub logging: LoggingSettings,
 }
 
 impl Default for AppSettings {
@@ -498,6 +500,7 @@ impl Default for AppSettings {
             language: LanguagePreference::default(),
             http_proxy: HttpProxySettings::default(),
             server_browser: ServerBrowserSettings::default(),
+            logging: LoggingSettings::default(),
         }
     }
 }
@@ -509,7 +512,7 @@ impl AppSettings {
 }
 
 fn default_query_timeout_ms() -> u64 {
-    2500
+    10000
 }
 
 fn default_connection_count() -> u32 {
@@ -607,6 +610,26 @@ pub enum HttpProxyMode {
     #[default]
     System,
     Custom,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoggingSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub level: LogLevel,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -821,5 +844,36 @@ mod tests {
 
         assert!(message.contains("10.0.0.1:12345"));
         assert!(message.contains("127.0.0.1:27015"));
+    }
+
+    #[test]
+    fn default_settings_disable_logging_at_info_level() {
+        let settings = AppSettings::default();
+
+        assert!(!settings.logging.enabled);
+        assert!(matches!(settings.logging.level, LogLevel::Info));
+    }
+
+    #[test]
+    fn settings_serialize_logging_with_camel_case_fields_and_lowercase_level() {
+        let mut settings = AppSettings::default();
+        settings.logging.enabled = true;
+        settings.logging.level = LogLevel::Debug;
+
+        let value = serde_json::to_value(settings).unwrap();
+
+        assert_eq!(value["logging"]["enabled"], json!(true));
+        assert_eq!(value["logging"]["level"], json!("debug"));
+    }
+
+    #[test]
+    fn settings_deserialization_rejects_invalid_logging_level() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value["logging"]["level"] = json!("verbose");
+
+        let error = serde_json::from_value::<AppSettings>(value)
+            .expect_err("invalid logging level should fail");
+
+        assert!(error.to_string().contains("verbose"));
     }
 }

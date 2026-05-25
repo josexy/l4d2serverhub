@@ -46,15 +46,20 @@ pub async fn add_search_history(
 
     prune_search_history(pool).await?;
 
-    list_search_history(pool).await
+    let records = list_search_history(pool).await?;
+    log::debug!("saved search history query; records={}", records.len());
+
+    Ok(records)
 }
 
 pub async fn delete_search_history(pool: &SqlitePool, id: String) -> AppResult<()> {
     sqlx::query("DELETE FROM search_history WHERE id = ?")
-        .bind(id)
+        .bind(&id)
         .execute(pool)
         .await
         .map_err(database_error)?;
+
+    log::debug!("deleted search history record '{}'", id);
 
     Ok(())
 }

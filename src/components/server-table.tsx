@@ -1,7 +1,7 @@
 import {
   AlertCircle,
   Eye,
-  LogIn,
+  ExternalLink,
   RefreshCw,
   ShieldCheck,
   Star,
@@ -56,7 +56,7 @@ type ResizableColumnId =
 type ColumnWidths = Record<ResizableColumnId, number>;
 
 const FAVORITE_COLUMN_WIDTH = 44;
-const CONNECT_COLUMN_WIDTH = 52;
+const CONNECT_COLUMN_WIDTH = 108;
 
 const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
   name: 260,
@@ -331,9 +331,11 @@ export function ServerTable({
               />
             </TableHead>
             <TableHead
-              className="w-[52px] text-center"
+              className="w-[108px] text-center"
               aria-label={messages.serverTable.columns.connect}
-            />
+            >
+              {messages.serverTable.columns.connect}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -435,8 +437,9 @@ export function ServerTable({
                 <TableCell className="text-center">
                   <Button
                     type="button"
-                    size="icon-xs"
+                    size="sm"
                     variant="outline"
+                    className="w-[92px] justify-center border-primary/35 bg-primary/10 text-primary hover:border-primary/50 hover:bg-primary/18 hover:text-primary dark:bg-primary/12 dark:hover:bg-primary/20"
                     aria-label={
                       isConnectPending
                         ? messages.serverTable.aria.connectPending(server.name)
@@ -449,10 +452,11 @@ export function ServerTable({
                     }}
                   >
                     {isConnectPending ? (
-                      <RefreshCw aria-hidden="true" />
+                      <RefreshCw aria-hidden="true" className="animate-spin" />
                     ) : (
-                      <LogIn aria-hidden="true" />
+                      <ExternalLink aria-hidden="true" />
                     )}
+                    <span>{messages.serverTable.columns.connect}</span>
                   </Button>
                 </TableCell>
               </TableRow>

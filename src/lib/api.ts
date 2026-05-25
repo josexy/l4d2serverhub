@@ -19,14 +19,18 @@ export const HISTORY_UPDATED_EVENT = "l4d2:history-updated";
 export const api = {
   queryServers: (params: ServerQueryParams) =>
     invoke<ServerQueryResult>("query_servers", { params }),
-  getServerDetails: (
-    serverId: string,
-    fallbackAddress: string | null = null,
-    fallbackName: string | null = null,
-  ) =>
+  getServerDetails: ({
+    address,
+    serverId = null,
+    fallbackName = null,
+  }: {
+    address: string;
+    serverId?: string | null;
+    fallbackName?: string | null;
+  }) =>
     invoke<ServerDetails>("get_server_details", {
+      address,
       serverId,
-      fallbackAddress,
       fallbackName,
     }),
   connectToServer: (

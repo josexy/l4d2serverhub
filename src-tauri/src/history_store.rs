@@ -63,6 +63,8 @@ pub async fn add_history(pool: &SqlitePool, snapshot: &ServerSnapshot) -> AppRes
     .await
     .map_err(database_error)?;
 
+    log::info!("recorded history for address '{}'", record.address);
+
     get_history_by_address(pool, &record.address).await
 }
 
@@ -102,15 +104,19 @@ pub async fn update_history_snapshot(
         )));
     }
 
+    log::debug!("updated history snapshot '{}'", id);
+
     get_history(pool, &id).await
 }
 
 pub async fn delete_history(pool: &SqlitePool, id: String) -> AppResult<()> {
     sqlx::query("DELETE FROM history_records WHERE id = ?")
-        .bind(id)
+        .bind(&id)
         .execute(pool)
         .await
         .map_err(database_error)?;
+
+    log::info!("deleted history record '{}'", id);
 
     Ok(())
 }
@@ -120,6 +126,8 @@ pub async fn clear_history(pool: &SqlitePool) -> AppResult<()> {
         .execute(pool)
         .await
         .map_err(database_error)?;
+
+    log::info!("cleared history records");
 
     Ok(())
 }

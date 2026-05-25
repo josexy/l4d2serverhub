@@ -5,7 +5,7 @@ export type UiLocale = "en" | "zh-CN";
 export type ShellPage = "servers" | "favorites" | "history" | "settings" | "about";
 
 export const DEFAULT_APP_SETTINGS = {
-  queryTimeoutMs: 2500,
+  queryTimeoutMs: 10000,
   theme: "dark",
   language: "system",
   httpProxy: {
@@ -16,6 +16,10 @@ export const DEFAULT_APP_SETTINGS = {
     filters: createDefaultFilters(),
     sort: "none",
     pageSize: 50,
+  },
+  logging: {
+    enabled: false,
+    level: "info",
   },
 } as const;
 
@@ -295,6 +299,9 @@ const en = {
     title: "Client settings",
     sectionTitle: "Query behavior",
     sectionDescription: "Tune how the app talks to the upstream server list service.",
+    loggingSectionTitle: "Diagnostic logging",
+    loggingSectionDescription:
+      "Write troubleshooting logs to the app log directory. Files rotate at 5 MiB and keep the latest 5 files.",
     exportTitle: "Export data",
     exportDescription: "Review or download a full backup payload.",
     importTitle: "Import data",
@@ -313,6 +320,10 @@ const en = {
       themeDescription: "Visual appearance of the desktop app.",
       language: "Language",
       languageDescription: "Display language for the interface.",
+      loggingEnabled: "Enable logs",
+      loggingEnabledDescription: "Collect backend diagnostic events after settings are saved.",
+      loggingLevel: "Log level",
+      loggingLevelDescription: "Higher detail levels can include larger upstream diagnostics.",
     },
     options: {
       themeSystem: "System",
@@ -324,6 +335,11 @@ const en = {
       languageSystem: "System",
       languageEnglish: "English",
       languageChinese: "Chinese (Simplified)",
+      logError: "Error",
+      logWarn: "Warn",
+      logInfo: "Info",
+      logDebug: "Debug",
+      logTrace: "Trace",
     },
     exportPrepared: "Export is ready.",
     exportCopied: "Export copied.",
@@ -703,6 +719,9 @@ const zhCn: typeof en = {
     title: "客户端设置",
     sectionTitle: "查询行为",
     sectionDescription: "调整应用与上游服务器列表服务交互的方式。",
+    loggingSectionTitle: "诊断日志",
+    loggingSectionDescription:
+      "将故障排查日志写入应用日志目录。单文件达到 5 MiB 后轮转，保留最近 5 个文件。",
     exportTitle: "导出数据",
     exportDescription: "查看或下载完整备份内容。",
     importTitle: "导入数据",
@@ -721,6 +740,10 @@ const zhCn: typeof en = {
       themeDescription: "桌面应用的外观。",
       language: "语言",
       languageDescription: "界面显示语言。",
+      loggingEnabled: "启用日志",
+      loggingEnabledDescription: "保存设置后收集后端诊断事件。",
+      loggingLevel: "日志级别",
+      loggingLevelDescription: "更详细的级别可能包含更多上游诊断信息。",
     },
     options: {
       themeSystem: "跟随系统",
@@ -732,6 +755,11 @@ const zhCn: typeof en = {
       languageSystem: "跟随系统",
       languageEnglish: "英文",
       languageChinese: "简体中文",
+      logError: "错误",
+      logWarn: "警告",
+      logInfo: "信息",
+      logDebug: "调试",
+      logTrace: "跟踪",
     },
     exportPrepared: "导出内容已准备好。",
     exportCopied: "导出内容已复制。",

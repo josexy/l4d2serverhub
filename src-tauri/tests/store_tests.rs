@@ -99,6 +99,11 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
         l4d2_server_hub_lib::models::HttpProxyMode::System
     ));
     assert_eq!(settings.http_proxy.custom_url, "");
+    assert!(!settings.logging.enabled);
+    assert!(matches!(
+        settings.logging.level,
+        l4d2_server_hub_lib::models::LogLevel::Info
+    ));
 
     let mut changed = settings.clone();
     changed.server_browser.page_size = 100;
@@ -106,6 +111,8 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
     changed.server_browser.sort = l4d2_server_hub_lib::models::ServerSort::PlayersDesc;
     changed.http_proxy.mode = l4d2_server_hub_lib::models::HttpProxyMode::Custom;
     changed.http_proxy.custom_url = "http://127.0.0.1:7890".to_string();
+    changed.logging.enabled = true;
+    changed.logging.level = l4d2_server_hub_lib::models::LogLevel::Debug;
     l4d2_server_hub_lib::settings_store::save_settings(&pool, &changed)
         .await
         .unwrap();
@@ -124,6 +131,11 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
         l4d2_server_hub_lib::models::HttpProxyMode::Custom
     ));
     assert_eq!(loaded.http_proxy.custom_url, "http://127.0.0.1:7890");
+    assert!(loaded.logging.enabled);
+    assert!(matches!(
+        loaded.logging.level,
+        l4d2_server_hub_lib::models::LogLevel::Debug
+    ));
 }
 
 #[tokio::test]

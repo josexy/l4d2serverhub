@@ -107,9 +107,11 @@ impl HttpUpstreamServerClient {
         let status = response.status();
         let body = response.text().await.map_err(map_reqwest_error)?;
 
-        eprintln!("[upstream_api] {operation} HTTP {status} response body:\n{body}");
+        log::debug!("{operation} upstream HTTP response status: {status}");
+        log::trace!("{operation} upstream HTTP response body:\n{body}");
 
         if !status.is_success() {
+            log::warn!("{operation} upstream returned non-success HTTP status: {status}");
             return Err(AppError::UpstreamUnavailable(format!(
                 "upstream returned HTTP {status}"
             )));
@@ -119,13 +121,13 @@ impl HttpUpstreamServerClient {
     }
 
     fn log_request_fields(&self, operation: &str, fields: &[(&str, String)]) {
-        eprintln!(
-            "[upstream_api] {operation} HTTP request:\nPOST {}\nheaders:\n  origin: {}\n  user-agent: {}\n  content-type: multipart/form-data\nform fields:",
-            self.config.post_url, self.config.origin, self.config.user_agent,
+        log::debug!(
+            "{operation} upstream HTTP request: POST {}, origin={}, user_agent={}, content-type=multipart/form-data",
+            self.config.post_url, self.config.origin, self.config.user_agent
         );
 
         for (name, value) in fields {
-            eprintln!("  {name}: {value}");
+            log::trace!("{operation} form field {name}={value}");
         }
     }
 
@@ -326,6 +328,13 @@ fn client_builder(
 impl UpstreamServerClient for HttpUpstreamServerClient {
     async fn query_servers(&self, params: &ServerQueryParams) -> AppResult<ServerQueryResult> {
         let request = self.list_request(params);
+        log::debug!(
+            "query_servers upstream request summary: page={}, page_size={}, query='{}', addresses={}, proxy_fields_ready=true",
+            request.page,
+            request.page_size,
+            request.query,
+            request.addresses.as_ref().map_or(0, Vec::len)
+        );
         self.log_list_request(&request);
         let body = self.post_form("query_servers", list_form(&request)).await?;
         let payload = parse_response_body::<ServerListResponse>("query_servers", &body)?;
@@ -336,7 +345,14 @@ impl UpstreamServerClient for HttpUpstreamServerClient {
             ));
         }
 
-        map_list_response(&payload, params.page, params.page_size)
+        let result = map_list_response(&payload, params.page, params.page_size)?;
+        log::info!(
+            "query_servers upstream response mapped: items={}, total={}, page={}",
+            result.items.len(),
+            result.total,
+            result.page
+        );
+        Ok(result)
     }
 
     async fn get_server_details(
@@ -346,6 +362,7 @@ impl UpstreamServerClient for HttpUpstreamServerClient {
         fallback_name: Option<&str>,
     ) -> AppResult<ServerDetails> {
         let request = self.details_request(server_id);
+        log::debug!("get_server_details upstream request summary: server_id='{server_id}'");
         self.log_details_request(&request);
         let body = self
             .post_form("get_server_details", details_form(&request))
@@ -359,7 +376,14 @@ impl UpstreamServerClient for HttpUpstreamServerClient {
             )));
         }
 
-        map_details_response(server_id, &payload, fallback_address, fallback_name)
+        let details = map_details_response(server_id, &payload, fallback_address, fallback_name)?;
+        log::info!(
+            "get_server_details upstream response mapped: server_id='{}', address='{}', players={}",
+            server_id,
+            details.snapshot.address,
+            details.players.len()
+        );
+        Ok(details)
     }
 }
 

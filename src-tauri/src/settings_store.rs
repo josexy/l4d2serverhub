@@ -32,6 +32,12 @@ pub async fn save_settings(pool: &SqlitePool, settings: &AppSettings) -> AppResu
     .await
     .map_err(database_error)?;
 
+    log::info!(
+        "saved settings: logging_enabled={}, logging_level={:?}",
+        settings.logging.enabled,
+        settings.logging.level
+    );
+
     Ok(settings.clone())
 }
 

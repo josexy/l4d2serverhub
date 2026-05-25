@@ -1,19 +1,33 @@
-use crate::errors::{AppResult, CommandResult};
+use crate::errors::{AppError, AppResult, CommandError, CommandResult};
 use crate::import_export::BackupPayload;
 use crate::models::{
     AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, SearchHistoryRecord,
-    ServerDetails, ServerQueryParams, ServerQueryResult, ServerSnapshot,
+    ServerDetails, ServerFilters, ServerQueryParams, ServerQueryResult, ServerSnapshot, ServerSort,
 };
 use crate::upstream_api::{HttpUpstreamServerClient, UpstreamApiConfig, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
 use crate::{steam_launcher, SharedState};
 use sqlx::SqlitePool;
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{cmp::Reverse, path::Path, sync::Arc, time::Duration};
 use tauri::State;
 use tokio::sync::OnceCell;
 
-fn command_result<T>(result: AppResult<T>) -> CommandResult<T> {
-    result.map_err(Into::into)
+fn command_result<T>(operation: &str, result: AppResult<T>) -> CommandResult<T> {
+    result.map_err(|error| {
+        log_command_error(operation, &error);
+        CommandError::from(error)
+    })
+}
+
+fn log_command_error(operation: &str, error: &AppError) {
+    match error {
+        AppError::Database(_) | AppError::Unexpected(_) | AppError::LaunchFailed(_) => {
+            log::error!("{operation} failed: {error}");
+        }
+        _ => {
+            log::warn!("{operation} failed: {error}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -21,22 +35,26 @@ pub async fn query_servers(
     state: State<'_, SharedState>,
     params: ServerQueryParams,
 ) -> CommandResult<ServerQueryResult> {
-    command_result(query_servers_impl(&state.pool, &state.upstream_config, params).await)
+    command_result(
+        "query_servers",
+        query_servers_impl(&state.pool, &state.upstream_config, params).await,
+    )
 }
 
 #[tauri::command]
 pub async fn get_server_details(
     state: State<'_, SharedState>,
-    server_id: String,
-    fallback_address: Option<String>,
+    address: String,
+    server_id: Option<String>,
     fallback_name: Option<String>,
 ) -> CommandResult<ServerDetails> {
     command_result(
+        "get_server_details",
         get_server_details_impl(
             &state.pool,
             &state.upstream_config,
-            &server_id,
-            fallback_address.as_deref(),
+            &address,
+            server_id.as_deref(),
             fallback_name.as_deref(),
         )
         .await,
@@ -49,12 +67,15 @@ pub async fn connect_to_server(
     address: String,
     history_snapshot: Option<ServerSnapshot>,
 ) -> CommandResult<()> {
-    command_result(connect_to_server_impl(&state.pool, &address, history_snapshot.as_ref()).await)
+    command_result(
+        "connect_to_server",
+        connect_to_server_impl(&state.pool, &address, history_snapshot.as_ref()).await,
+    )
 }
 
 #[tauri::command]
 pub async fn list_favorites(state: State<'_, SharedState>) -> CommandResult<Vec<Favorite>> {
-    command_result(list_favorites_impl(&state.pool).await)
+    command_result("list_favorites", list_favorites_impl(&state.pool).await)
 }
 
 #[tauri::command]
@@ -62,7 +83,7 @@ pub async fn add_favorite(
     state: State<'_, SharedState>,
     input: FavoriteInput,
 ) -> CommandResult<Favorite> {
-    command_result(add_favorite_impl(&state.pool, input).await)
+    command_result("add_favorite", add_favorite_impl(&state.pool, input).await)
 }
 
 #[tauri::command]
@@ -71,7 +92,10 @@ pub async fn update_favorite(
     id: String,
     input: FavoriteInput,
 ) -> CommandResult<Favorite> {
-    command_result(update_favorite_impl(&state.pool, id, input).await)
+    command_result(
+        "update_favorite",
+        update_favorite_impl(&state.pool, id, input).await,
+    )
 }
 
 #[tauri::command]
@@ -80,17 +104,26 @@ pub async fn update_favorite_snapshot(
     id: String,
     snapshot: ServerSnapshot,
 ) -> CommandResult<Favorite> {
-    command_result(update_favorite_snapshot_impl(&state.pool, id, &snapshot).await)
+    command_result(
+        "update_favorite_snapshot",
+        update_favorite_snapshot_impl(&state.pool, id, &snapshot).await,
+    )
 }
 
 #[tauri::command]
 pub async fn delete_favorite(state: State<'_, SharedState>, id: String) -> CommandResult<()> {
-    command_result(delete_favorite_impl(&state.pool, id).await)
+    command_result(
+        "delete_favorite",
+        delete_favorite_impl(&state.pool, id).await,
+    )
 }
 
 #[tauri::command]
 pub async fn list_groups(state: State<'_, SharedState>) -> CommandResult<Vec<FavoriteGroup>> {
-    command_result(favorites_store::list_groups(&state.pool).await)
+    command_result(
+        "list_groups",
+        favorites_store::list_groups(&state.pool).await,
+    )
 }
 
 #[tauri::command]
@@ -98,7 +131,10 @@ pub async fn create_group(
     state: State<'_, SharedState>,
     name: String,
 ) -> CommandResult<FavoriteGroup> {
-    command_result(favorites_store::create_group(&state.pool, name).await)
+    command_result(
+        "create_group",
+        favorites_store::create_group(&state.pool, name).await,
+    )
 }
 
 #[tauri::command]
@@ -107,17 +143,26 @@ pub async fn update_group(
     id: String,
     name: String,
 ) -> CommandResult<FavoriteGroup> {
-    command_result(favorites_store::update_group(&state.pool, id, name).await)
+    command_result(
+        "update_group",
+        favorites_store::update_group(&state.pool, id, name).await,
+    )
 }
 
 #[tauri::command]
 pub async fn delete_group(state: State<'_, SharedState>, id: String) -> CommandResult<()> {
-    command_result(favorites_store::delete_group(&state.pool, id).await)
+    command_result(
+        "delete_group",
+        favorites_store::delete_group(&state.pool, id).await,
+    )
 }
 
 #[tauri::command]
 pub async fn list_history(state: State<'_, SharedState>) -> CommandResult<Vec<HistoryRecord>> {
-    command_result(history_store::list_history(&state.pool).await)
+    command_result(
+        "list_history",
+        history_store::list_history(&state.pool).await,
+    )
 }
 
 #[tauri::command]
@@ -126,24 +171,36 @@ pub async fn update_history_snapshot(
     id: String,
     snapshot: ServerSnapshot,
 ) -> CommandResult<HistoryRecord> {
-    command_result(history_store::update_history_snapshot(&state.pool, id, &snapshot).await)
+    command_result(
+        "update_history_snapshot",
+        history_store::update_history_snapshot(&state.pool, id, &snapshot).await,
+    )
 }
 
 #[tauri::command]
 pub async fn delete_history(state: State<'_, SharedState>, id: String) -> CommandResult<()> {
-    command_result(history_store::delete_history(&state.pool, id).await)
+    command_result(
+        "delete_history",
+        history_store::delete_history(&state.pool, id).await,
+    )
 }
 
 #[tauri::command]
 pub async fn clear_history(state: State<'_, SharedState>) -> CommandResult<()> {
-    command_result(history_store::clear_history(&state.pool).await)
+    command_result(
+        "clear_history",
+        history_store::clear_history(&state.pool).await,
+    )
 }
 
 #[tauri::command]
 pub async fn list_search_history(
     state: State<'_, SharedState>,
 ) -> CommandResult<Vec<SearchHistoryRecord>> {
-    command_result(search_history_store::list_search_history(&state.pool).await)
+    command_result(
+        "list_search_history",
+        search_history_store::list_search_history(&state.pool).await,
+    )
 }
 
 #[tauri::command]
@@ -151,17 +208,23 @@ pub async fn add_search_history(
     state: State<'_, SharedState>,
     query: String,
 ) -> CommandResult<Vec<SearchHistoryRecord>> {
-    command_result(search_history_store::add_search_history(&state.pool, query).await)
+    command_result(
+        "add_search_history",
+        search_history_store::add_search_history(&state.pool, query).await,
+    )
 }
 
 #[tauri::command]
 pub async fn delete_search_history(state: State<'_, SharedState>, id: String) -> CommandResult<()> {
-    command_result(search_history_store::delete_search_history(&state.pool, id).await)
+    command_result(
+        "delete_search_history",
+        search_history_store::delete_search_history(&state.pool, id).await,
+    )
 }
 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, SharedState>) -> CommandResult<AppSettings> {
-    command_result(get_settings_impl(&state.pool).await)
+    command_result("get_settings", get_settings_impl(&state.pool).await)
 }
 
 #[tauri::command]
@@ -169,17 +232,23 @@ pub async fn update_settings(
     state: State<'_, SharedState>,
     settings: AppSettings,
 ) -> CommandResult<AppSettings> {
-    command_result(update_settings_impl(&state.pool, settings).await)
+    command_result(
+        "update_settings",
+        update_settings_impl(&state.pool, &state.log_state, settings).await,
+    )
 }
 
 #[tauri::command]
 pub async fn export_data(state: State<'_, SharedState>) -> CommandResult<BackupPayload> {
-    command_result(import_export::export_data(&state.pool).await)
+    command_result("export_data", import_export::export_data(&state.pool).await)
 }
 
 #[tauri::command]
 pub async fn write_export_file(path: String, contents: String) -> CommandResult<()> {
-    command_result(write_export_file_impl(&path, &contents).await)
+    command_result(
+        "write_export_file",
+        write_export_file_impl(&path, &contents).await,
+    )
 }
 
 #[tauri::command]
@@ -187,7 +256,10 @@ pub async fn import_data(
     state: State<'_, SharedState>,
     payload: BackupPayload,
 ) -> CommandResult<BackupPayload> {
-    command_result(import_export::import_data(&state.pool, payload).await)
+    command_result(
+        "import_data",
+        import_data_impl(&state.pool, &state.log_state, payload).await,
+    )
 }
 
 async fn query_servers_impl(
@@ -196,6 +268,13 @@ async fn query_servers_impl(
     params: ServerQueryParams,
 ) -> AppResult<ServerQueryResult> {
     let settings = settings_store::get_settings(pool).await?;
+    log::debug!(
+        "query_servers requested: page={}, page_size={}, query='{}', addresses={}",
+        params.page,
+        params.page_size,
+        params.filters.query,
+        params.addresses.as_ref().map_or(0, Vec::len)
+    );
     let upstream_config = upstream_config_for_request(pool, upstream_config).await;
     let client = HttpUpstreamServerClient::with_config_and_proxy(
         Duration::from_millis(settings.query_timeout_ms),
@@ -248,14 +327,10 @@ fn sort_query_result_items(result: &mut ServerQueryResult, sort: &crate::models:
     match sort {
         crate::models::ServerSort::None => {}
         crate::models::ServerSort::PlayersDesc => {
-            result
-                .items
-                .sort_by(|left, right| right.players.cmp(&left.players));
+            result.items.sort_by_key(|item| Reverse(item.players));
         }
         crate::models::ServerSort::PlayersAsc => {
-            result
-                .items
-                .sort_by(|left, right| left.players.cmp(&right.players));
+            result.items.sort_by_key(|item| item.players);
         }
     }
 }
@@ -263,8 +338,8 @@ fn sort_query_result_items(result: &mut ServerQueryResult, sort: &crate::models:
 async fn get_server_details_impl(
     pool: &SqlitePool,
     upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
-    server_id: &str,
-    fallback_address: Option<&str>,
+    address: &str,
+    server_id: Option<&str>,
     fallback_name: Option<&str>,
 ) -> AppResult<ServerDetails> {
     let settings = settings_store::get_settings(pool).await?;
@@ -275,7 +350,7 @@ async fn get_server_details_impl(
         &settings.http_proxy,
     )?;
 
-    get_server_details_with_client(server_id, &client, fallback_address, fallback_name).await
+    get_server_details_with_client(address, server_id, &client, fallback_name).await
 }
 
 async fn upstream_config_for_request(
@@ -289,14 +364,74 @@ async fn upstream_config_for_request(
 }
 
 async fn get_server_details_with_client(
-    server_id: &str,
+    address: &str,
+    _server_id: Option<&str>,
     client: &dyn UpstreamServerClient,
-    fallback_address: Option<&str>,
     fallback_name: Option<&str>,
 ) -> AppResult<ServerDetails> {
+    let normalized_address = normalize_server_address(address)?;
+    let resolved_server_id =
+        resolve_server_id_for_address_with_client(client, &normalized_address).await?;
+
+    log::debug!(
+        "resolved old server id {} to server id '{}' for address '{}'",
+        _server_id.unwrap_or("unknown"),
+        resolved_server_id,
+        normalized_address
+    );
+
     client
-        .get_server_details(server_id, fallback_address, fallback_name)
+        .get_server_details(
+            &resolved_server_id,
+            Some(&normalized_address),
+            fallback_name,
+        )
         .await
+}
+
+fn normalize_server_address(address: &str) -> AppResult<String> {
+    Ok(steam_launcher::parse_server_address(address)?.as_string())
+}
+
+async fn resolve_server_id_for_address_with_client(
+    client: &dyn UpstreamServerClient,
+    normalized_address: &str,
+) -> AppResult<String> {
+    let result = query_servers_with_client(
+        ServerQueryParams {
+            page: 1,
+            page_size: 1,
+            filters: ServerFilters::default(),
+            sort: ServerSort::None,
+            addresses: Some(vec![normalized_address.to_string()]),
+        },
+        client,
+    )
+    .await?;
+
+    let snapshot = result
+        .items
+        .into_iter()
+        .find(|snapshot| snapshot.address == normalized_address)
+        .ok_or_else(|| {
+            crate::errors::AppError::UpstreamUnavailable(format!(
+                "upstream did not return server metadata for address '{}'",
+                normalized_address
+            ))
+        })?;
+
+    snapshot
+        .server_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|server_id| !server_id.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            crate::errors::AppError::UpstreamUnavailable(format!(
+                "upstream did not return a server id for address '{}'",
+                normalized_address
+            ))
+        })
 }
 
 async fn connect_to_server_impl(
@@ -341,7 +476,9 @@ async fn connect_to_server_with_launcher(
     history_snapshot: Option<&ServerSnapshot>,
     launcher: impl FnOnce(&str) -> AppResult<()>,
 ) -> AppResult<()> {
-    launcher(address)?;
+    let normalized_address = normalize_server_address(address)?;
+    log::info!("launching server connection for '{}'", normalized_address);
+    launcher(&normalized_address)?;
 
     if let Some(snapshot) = history_snapshot {
         history_store::add_history(pool, snapshot).await?;
@@ -354,8 +491,34 @@ async fn get_settings_impl(pool: &SqlitePool) -> AppResult<AppSettings> {
     settings_store::get_settings(pool).await
 }
 
-async fn update_settings_impl(pool: &SqlitePool, settings: AppSettings) -> AppResult<AppSettings> {
-    settings_store::save_settings(pool, &settings).await
+async fn update_settings_impl(
+    pool: &SqlitePool,
+    log_state: &crate::logging::LogState,
+    settings: AppSettings,
+) -> AppResult<AppSettings> {
+    let saved = settings_store::save_settings(pool, &settings).await?;
+    log_state.apply_settings(&saved.logging);
+    log::info!(
+        "updated logging settings: enabled={}, level={:?}",
+        saved.logging.enabled,
+        saved.logging.level
+    );
+    Ok(saved)
+}
+
+async fn import_data_impl(
+    pool: &SqlitePool,
+    log_state: &crate::logging::LogState,
+    payload: BackupPayload,
+) -> AppResult<BackupPayload> {
+    let imported = import_export::import_data(pool, payload).await?;
+    log_state.apply_settings(&imported.settings.logging);
+    log::info!(
+        "applied imported logging settings: enabled={}, level={:?}",
+        imported.settings.logging.enabled,
+        imported.settings.logging.level
+    );
+    Ok(imported)
 }
 
 async fn write_export_file_impl(path: &str, contents: &str) -> AppResult<()> {
@@ -375,13 +538,16 @@ async fn write_export_file_impl(path: &str, contents: &str) -> AppResult<()> {
 mod tests {
     use super::*;
     use crate::errors::AppError;
+    use crate::logging::LogState;
     use crate::models::ServerSnapshotInput;
     use crate::models::{
-        LanguagePreference, ServerFilters, ServerPlayer, ServerSort, ThemePreference,
+        LanguagePreference, LogLevel, ServerFilters, ServerPlayer, ServerSort, ThemePreference,
     };
     use async_trait::async_trait;
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
     use sqlx::SqlitePool;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     async fn memory_pool() -> SqlitePool {
         crate::create_pool("sqlite::memory:").await.unwrap()
@@ -396,10 +562,8 @@ mod tests {
             sort: ServerSort::PlayersDesc,
             addresses: None,
         };
-        let client = FakeUpstreamClient {
-            query_result: sample_query_result(),
-            details: sample_details(),
-        };
+        let client =
+            FakeUpstreamClient::with_single_detail(sample_query_result(), sample_details());
 
         let result = query_servers_with_client(params, &client).await.unwrap();
 
@@ -418,10 +582,10 @@ mod tests {
             sort: ServerSort::PlayersDesc,
             addresses: None,
         };
-        let client = FakeUpstreamClient {
-            query_result: sample_unsorted_query_result(),
-            details: sample_details(),
-        };
+        let client = FakeUpstreamClient::with_single_detail(
+            sample_unsorted_query_result(),
+            sample_details(),
+        );
 
         let result = query_servers_with_client(params, &client).await.unwrap();
 
@@ -444,10 +608,10 @@ mod tests {
             sort: ServerSort::PlayersAsc,
             addresses: None,
         };
-        let client = FakeUpstreamClient {
-            query_result: sample_unsorted_query_result(),
-            details: sample_details(),
-        };
+        let client = FakeUpstreamClient::with_single_detail(
+            sample_unsorted_query_result(),
+            sample_details(),
+        );
 
         let result = query_servers_with_client(params, &client).await.unwrap();
 
@@ -470,10 +634,8 @@ mod tests {
             sort: ServerSort::None,
             addresses: Some(vec!["https://1.2.3.4:27015".to_string()]),
         };
-        let client = FakeUpstreamClient {
-            query_result: sample_query_result(),
-            details: sample_details(),
-        };
+        let client =
+            FakeUpstreamClient::with_single_detail(sample_query_result(), sample_details());
 
         let error = query_servers_with_client(params, &client)
             .await
@@ -484,18 +646,109 @@ mod tests {
 
     #[tokio::test]
     async fn get_server_details_returns_snapshot_and_players() {
-        let client = FakeUpstreamClient {
-            query_result: sample_query_result(),
-            details: sample_details(),
-        };
+        let client =
+            FakeUpstreamClient::with_single_detail(sample_query_result(), sample_details());
 
-        let result = get_server_details_with_client("server854", &client, None, None)
-            .await
-            .unwrap();
+        let result =
+            get_server_details_with_client("103.28.54.212:27035", Some("server854"), &client, None)
+                .await
+                .unwrap();
 
         assert_eq!(result.snapshot.server_id.as_deref(), Some("server854"));
         assert_eq!(result.players.len(), 1);
         assert_eq!(result.players[0].name, "Alice");
+    }
+
+    #[tokio::test]
+    async fn get_server_details_resolves_authoritative_server_id_from_address() {
+        let client = FakeUpstreamClient::with_single_detail(
+            sample_query_result_with_server_id("2.2.2.2:9999", "server2"),
+            sample_details_with_server_id("2.2.2.2:9999", "server2"),
+        );
+
+        let result = get_server_details_with_client(
+            "2.2.2.2:9999",
+            Some("server1"),
+            &client,
+            Some("Renamed server"),
+        )
+        .await
+        .unwrap();
+
+        let query_calls = client.take_query_calls();
+        assert_eq!(query_calls.len(), 1);
+        assert_eq!(query_calls[0].page, 1);
+        assert_eq!(query_calls[0].page_size, 1);
+        assert_eq!(query_calls[0].sort, ServerSort::None);
+        assert_eq!(query_calls[0].filters, ServerFilters::default());
+        assert_eq!(
+            query_calls[0].addresses.as_ref(),
+            Some(&vec!["2.2.2.2:9999".to_string()])
+        );
+
+        let detail_calls = client.take_detail_calls();
+        assert_eq!(detail_calls.len(), 1);
+        assert_eq!(detail_calls[0].server_id, "server2");
+        assert_eq!(
+            detail_calls[0].fallback_address.as_deref(),
+            Some("2.2.2.2:9999")
+        );
+        assert_eq!(
+            detail_calls[0].fallback_name.as_deref(),
+            Some("Renamed server")
+        );
+        assert_eq!(result.snapshot.server_id.as_deref(), Some("server2"));
+    }
+
+    #[tokio::test]
+    async fn get_server_details_errors_when_address_lookup_returns_no_match() {
+        let client = FakeUpstreamClient::with_single_detail(
+            ServerQueryResult {
+                items: Vec::new(),
+                page: 1,
+                page_size: 1,
+                total: 0,
+                refreshed_at: None,
+            },
+            sample_details(),
+        );
+
+        let error =
+            get_server_details_with_client("103.28.54.212:27035", Some("server854"), &client, None)
+                .await
+                .expect_err("missing address lookup should fail");
+
+        assert!(matches!(error, AppError::UpstreamUnavailable(_)));
+        assert!(client.take_detail_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_server_details_succeeds_without_cached_server_id() {
+        let client =
+            FakeUpstreamClient::with_single_detail(sample_query_result(), sample_details());
+
+        let result = get_server_details_with_client("103.28.54.212:27035", None, &client, None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.snapshot.server_id.as_deref(), Some("server854"));
+        let detail_calls = client.take_detail_calls();
+        assert_eq!(detail_calls.len(), 1);
+        assert_eq!(detail_calls[0].server_id, "server854");
+    }
+
+    #[tokio::test]
+    async fn get_server_details_rejects_invalid_address_before_upstream_queries() {
+        let client =
+            FakeUpstreamClient::with_single_detail(sample_query_result(), sample_details());
+
+        let error = get_server_details_with_client("https://1.2.3.4:27015", None, &client, None)
+            .await
+            .expect_err("invalid address should fail before upstream query");
+
+        assert!(matches!(error, AppError::InvalidAddress(_)));
+        assert!(client.take_query_calls().is_empty());
+        assert!(client.take_detail_calls().is_empty());
     }
 
     #[tokio::test]
@@ -506,13 +759,63 @@ mod tests {
         settings.language = LanguagePreference::ZhCn;
         settings.server_browser.page_size = 24;
 
-        let saved = update_settings_impl(&pool, settings).await.unwrap();
+        let log_state = LogState::default();
+        let saved = update_settings_impl(&pool, &log_state, settings)
+            .await
+            .unwrap();
         let loaded = get_settings_impl(&pool).await.unwrap();
 
         assert_eq!(saved.server_browser.page_size, 24);
         assert!(matches!(loaded.theme, ThemePreference::Dark));
         assert!(matches!(loaded.language, LanguagePreference::ZhCn));
         assert_eq!(loaded.server_browser.page_size, 24);
+    }
+
+    #[tokio::test]
+    async fn update_settings_command_applies_logging_state() {
+        let pool = memory_pool().await;
+        let log_state = LogState::default();
+        let mut settings = get_settings_impl(&pool).await.unwrap();
+        settings.logging.enabled = true;
+        settings.logging.level = LogLevel::Debug;
+
+        update_settings_impl(&pool, &log_state, settings)
+            .await
+            .unwrap();
+
+        assert!(log_state.enabled());
+        assert!(matches!(log_state.level(), LogLevel::Debug));
+    }
+
+    #[tokio::test]
+    async fn import_data_command_applies_imported_logging_state() {
+        let pool = memory_pool().await;
+        let log_state = LogState::default();
+        let mut settings = AppSettings::default();
+        settings.logging.enabled = true;
+        settings.logging.level = LogLevel::Trace;
+
+        import_data_impl(
+            &pool,
+            &log_state,
+            BackupPayload {
+                version: 1,
+                settings,
+                groups: vec![FavoriteGroup {
+                    id: "default".to_string(),
+                    name: "Default".to_string(),
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                }],
+                favorites: Vec::new(),
+                history: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(log_state.enabled());
+        assert!(matches!(log_state.level(), LogLevel::Trace));
     }
 
     #[tokio::test]
@@ -643,32 +946,85 @@ mod tests {
         assert!(history.is_empty());
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DetailCall {
+        server_id: String,
+        fallback_address: Option<String>,
+        fallback_name: Option<String>,
+    }
+
     struct FakeUpstreamClient {
         query_result: ServerQueryResult,
-        details: ServerDetails,
+        details_by_server_id: HashMap<String, ServerDetails>,
+        query_calls: Mutex<Vec<ServerQueryParams>>,
+        detail_calls: Mutex<Vec<DetailCall>>,
+    }
+
+    impl FakeUpstreamClient {
+        fn with_single_detail(query_result: ServerQueryResult, details: ServerDetails) -> Self {
+            let detail_server_id = details
+                .snapshot
+                .server_id
+                .clone()
+                .expect("test details should include a server id");
+            let mut details_by_server_id = HashMap::new();
+            details_by_server_id.insert(detail_server_id, details);
+
+            Self {
+                query_result,
+                details_by_server_id,
+                query_calls: Mutex::new(Vec::new()),
+                detail_calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn take_query_calls(&self) -> Vec<ServerQueryParams> {
+            self.query_calls.lock().unwrap().clone()
+        }
+
+        fn take_detail_calls(&self) -> Vec<DetailCall> {
+            self.detail_calls.lock().unwrap().clone()
+        }
     }
 
     #[async_trait]
     impl UpstreamServerClient for FakeUpstreamClient {
-        async fn query_servers(&self, _params: &ServerQueryParams) -> AppResult<ServerQueryResult> {
+        async fn query_servers(&self, params: &ServerQueryParams) -> AppResult<ServerQueryResult> {
+            self.query_calls.lock().unwrap().push(params.clone());
             Ok(self.query_result.clone())
         }
 
         async fn get_server_details(
             &self,
-            _server_id: &str,
-            _fallback_address: Option<&str>,
-            _fallback_name: Option<&str>,
+            server_id: &str,
+            fallback_address: Option<&str>,
+            fallback_name: Option<&str>,
         ) -> AppResult<ServerDetails> {
-            Ok(self.details.clone())
+            self.detail_calls.lock().unwrap().push(DetailCall {
+                server_id: server_id.to_string(),
+                fallback_address: fallback_address.map(str::to_string),
+                fallback_name: fallback_name.map(str::to_string),
+            });
+
+            self.details_by_server_id
+                .get(server_id)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::Unexpected(format!("unexpected detail request '{}'", server_id))
+                })
         }
     }
 
     fn sample_query_result() -> ServerQueryResult {
+        sample_query_result_with_server_id("103.28.54.212:27035", "server854")
+    }
+
+    fn sample_query_result_with_server_id(address: &str, server_id: &str) -> ServerQueryResult {
         ServerQueryResult {
-            items: vec![sample_snapshot(
-                "103.28.54.212:27035",
+            items: vec![sample_snapshot_with_server_id(
+                address,
                 "Valve Left4Dead 2 Hong Kong Server",
+                server_id,
             )],
             page: 1,
             page_size: 50,
@@ -700,8 +1056,16 @@ mod tests {
     }
 
     fn sample_details() -> ServerDetails {
+        sample_details_with_server_id("103.28.54.212:27035", "server854")
+    }
+
+    fn sample_details_with_server_id(address: &str, server_id: &str) -> ServerDetails {
         ServerDetails {
-            snapshot: sample_snapshot("103.28.54.212:27035", "Valve Left4Dead 2 Hong Kong Server"),
+            snapshot: sample_snapshot_with_server_id(
+                address,
+                "Valve Left4Dead 2 Hong Kong Server",
+                server_id,
+            ),
             players: vec![ServerPlayer {
                 name: "Alice".to_string(),
                 score: 15,
@@ -712,10 +1076,27 @@ mod tests {
     }
 
     fn sample_snapshot(address: &str, name: &str) -> ServerSnapshot {
-        sample_snapshot_with_players(address, name, 3)
+        sample_snapshot_with_server_id(address, name, "server854")
+    }
+
+    fn sample_snapshot_with_server_id(
+        address: &str,
+        name: &str,
+        server_id: &str,
+    ) -> ServerSnapshot {
+        sample_snapshot_with_players_and_server_id(address, name, 3, server_id)
     }
 
     fn sample_snapshot_with_players(address: &str, name: &str, players: u32) -> ServerSnapshot {
+        sample_snapshot_with_players_and_server_id(address, name, players, "server854")
+    }
+
+    fn sample_snapshot_with_players_and_server_id(
+        address: &str,
+        name: &str,
+        players: u32,
+        server_id: &str,
+    ) -> ServerSnapshot {
         let (ip, port) = address
             .split_once(':')
             .expect("test address should include port");
@@ -726,7 +1107,7 @@ mod tests {
             + ChronoDuration::minutes(5);
 
         ServerSnapshot::try_new(ServerSnapshotInput {
-            server_id: Some("server854".to_string()),
+            server_id: Some(server_id.to_string()),
             address: address.to_string(),
             ip: ip.to_string(),
             port: port.parse().expect("test port should be valid"),

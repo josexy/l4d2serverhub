@@ -127,16 +127,15 @@ async function resolveFavoriteSnapshot(
     return favorite.lastSnapshot;
   }
 
-  const serverId = favoriteServerId(favorite);
-  if (!serverId) {
+  if (!favorite.address.trim()) {
     return null;
   }
 
-  const details = await api.getServerDetails(
-    serverId,
-    favorite.address,
-    favorite.customName,
-  );
+  const details = await api.getServerDetails({
+    address: favorite.address,
+    serverId: favoriteServerId(favorite),
+    fallbackName: favorite.customName,
+  });
   return details.snapshot;
 }
 
@@ -1032,8 +1031,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   };
 
   const openFavoriteDetails = async (favorite: Favorite) => {
-    const serverId = favoriteServerId(favorite);
-    if (!serverId) {
+    if (!favorite.address.trim()) {
       toast.error(messages.serverDetail.snapshotUnavailable);
       return;
     }
@@ -1050,11 +1048,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     setSelectedServer(null);
     setLoadingDetailFavoriteId(favorite.id);
     try {
-      const details = await api.getServerDetails(
-        serverId,
-        favorite.address,
-        favorite.customName,
-      );
+      const details = await api.getServerDetails({
+        address: favorite.address,
+        serverId: favoriteServerId(favorite),
+        fallbackName: favorite.customName,
+      });
       const updatedFavorite = await api.updateFavoriteSnapshot(
         favorite.id,
         details.snapshot,

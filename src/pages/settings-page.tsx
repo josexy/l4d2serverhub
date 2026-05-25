@@ -30,6 +30,7 @@ import type {
   BackupPayload,
   HttpProxyMode,
   LanguagePreference,
+  LogLevel,
   ThemePreference,
 } from "@/lib/types";
 
@@ -39,6 +40,8 @@ type SettingsDraft = {
   customProxyUrl: string;
   theme: ThemePreference;
   language: LanguagePreference;
+  loggingEnabled: boolean;
+  loggingLevel: LogLevel;
 };
 
 type NumericDraftKey = "queryTimeoutMs";
@@ -63,6 +66,8 @@ function draftFromSettings(settings: AppSettings): SettingsDraft {
     customProxyUrl: settings.httpProxy.customUrl,
     theme: settings.theme,
     language: settings.language,
+    loggingEnabled: settings.logging.enabled,
+    loggingLevel: settings.logging.level,
   };
 }
 
@@ -101,6 +106,8 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     settings.httpProxy.mode,
     settings.queryTimeoutMs,
     settings.theme,
+    settings.logging.enabled,
+    settings.logging.level,
   ]);
 
   const validation = useMemo(() => {
@@ -193,6 +200,10 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
         },
         theme: draft.theme,
         language: draft.language,
+        logging: {
+          enabled: draft.loggingEnabled,
+          level: draft.loggingLevel,
+        },
       },
     } satisfies SettingsValidation;
   }, [draft, locale, messages.settings.labels, settings]);
@@ -544,6 +555,65 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
                       <SelectItem value="zh-CN">
                         {messages.settings.options.languageChinese}
                       </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+
+                <div className="border-t pt-5 md:col-span-2">
+                  <h3 className="text-base font-semibold text-foreground">
+                    {messages.settings.loggingSectionTitle}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {messages.settings.loggingSectionDescription}
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="logging-enabled" className="text-sm font-medium text-foreground">
+                    {messages.settings.labels.loggingEnabled}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {messages.settings.labels.loggingEnabledDescription}
+                  </p>
+                </div>
+                <label className="flex w-fit items-center gap-2 rounded-md border bg-background/60 px-3 py-2 text-sm">
+                  <Checkbox
+                    id="logging-enabled"
+                    checked={draft.loggingEnabled}
+                    onCheckedChange={(checked) =>
+                      updateDraft("loggingEnabled", checked === true)
+                    }
+                  />
+                  <span>
+                    {draft.loggingEnabled ? messages.common.enabled : messages.common.disabled}
+                  </span>
+                </label>
+
+                <div>
+                  <label htmlFor="logging-level" className="text-sm font-medium text-foreground">
+                    {messages.settings.labels.loggingLevel}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {messages.settings.labels.loggingLevelDescription}
+                  </p>
+                </div>
+                <Select
+                  value={draft.loggingLevel}
+                  disabled={!draft.loggingEnabled}
+                  onValueChange={(value) =>
+                    updateDraft("loggingLevel", value as LogLevel)
+                  }
+                >
+                  <SelectTrigger id="logging-level" className="w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="error">{messages.settings.options.logError}</SelectItem>
+                      <SelectItem value="warn">{messages.settings.options.logWarn}</SelectItem>
+                      <SelectItem value="info">{messages.settings.options.logInfo}</SelectItem>
+                      <SelectItem value="debug">{messages.settings.options.logDebug}</SelectItem>
+                      <SelectItem value="trace">{messages.settings.options.logTrace}</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>

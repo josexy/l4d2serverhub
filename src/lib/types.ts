@@ -2,6 +2,7 @@ export type QueryRegion = "asia" | "all";
 export type ThemePreference = "system" | "light" | "dark";
 export type LanguagePreference = "system" | "en" | "zh-CN";
 export type HttpProxyMode = "none" | "system" | "custom";
+export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
 export type CommandErrorKind =
   | "networkTimeout"
   | "upstreamUnavailable"
@@ -114,11 +115,17 @@ export interface AppSettings {
   language: LanguagePreference;
   httpProxy: HttpProxySettings;
   serverBrowser: ServerBrowserSettings;
+  logging: LoggingSettings;
 }
 
 export interface HttpProxySettings {
   mode: HttpProxyMode;
   customUrl: string;
+}
+
+export interface LoggingSettings {
+  enabled: boolean;
+  level: LogLevel;
 }
 
 export interface CustomRuleBlock {

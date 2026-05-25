@@ -42,6 +42,8 @@ pub async fn create_group(pool: &SqlitePool, name: String) -> AppResult<Favorite
     .await
     .map_err(database_error)?;
 
+    log::info!("created favorite group '{}'", group.id);
+
     Ok(group)
 }
 
@@ -65,6 +67,8 @@ pub async fn update_group(pool: &SqlitePool, id: String, name: String) -> AppRes
             id
         )));
     }
+
+    log::info!("updated favorite group '{}'", id);
 
     get_group(pool, &id).await
 }
@@ -98,6 +102,8 @@ pub async fn delete_group(pool: &SqlitePool, id: String) -> AppResult<()> {
     }
 
     tx.commit().await.map_err(database_error)?;
+
+    log::info!("deleted favorite group '{}'", id);
 
     Ok(())
 }
@@ -144,6 +150,8 @@ pub async fn add_favorite(pool: &SqlitePool, input: FavoriteInput) -> AppResult<
     .await
     .map_err(database_error)?;
 
+    log::info!("added favorite '{}' for address '{}'", id, input.address);
+
     get_favorite(pool, &id).await
 }
 
@@ -181,6 +189,8 @@ pub async fn update_favorite(
         )));
     }
 
+    log::info!("updated favorite '{}'", id);
+
     get_favorite(pool, &id).await
 }
 
@@ -212,15 +222,19 @@ pub async fn update_favorite_snapshot(
         )));
     }
 
+    log::debug!("updated favorite snapshot '{}'", id);
+
     get_favorite(pool, &id).await
 }
 
 pub async fn delete_favorite(pool: &SqlitePool, id: String) -> AppResult<()> {
     sqlx::query("DELETE FROM favorites WHERE id = ?")
-        .bind(id)
+        .bind(&id)
         .execute(pool)
         .await
         .map_err(database_error)?;
+
+    log::info!("deleted favorite '{}'", id);
 
     Ok(())
 }

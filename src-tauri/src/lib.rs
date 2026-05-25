@@ -4,6 +4,7 @@ pub mod errors;
 pub mod favorites_store;
 pub mod history_store;
 pub mod import_export;
+pub mod logging;
 pub mod models;
 pub mod search_history_store;
 pub mod settings_store;
@@ -11,18 +12,26 @@ pub mod steam_launcher;
 pub mod upstream_api;
 
 use chrono::Utc;
+use logging::LogState;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     SqlitePool,
 };
-use std::{io, path::Path, str::FromStr, sync::Arc};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 use tauri::{Listener, LogicalSize, Manager};
+use tauri_plugin_log::{Target, TargetKind};
 use tokio::sync::OnceCell;
 use upstream_api::UpstreamApiConfig;
 
 pub struct AppState {
     pub pool: SqlitePool,
     pub upstream_config: Arc<OnceCell<UpstreamApiConfig>>,
+    pub log_state: Arc<LogState>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -39,6 +48,7 @@ const MIN_HEIGHT_CAP: f64 = 700.0;
 const STARTUP_WIDTH_CAP: f64 = 1400.0;
 const STARTUP_HEIGHT_CAP: f64 = 900.0;
 const DATABASE_FILE_NAME: &str = "l4d2-server-hub.sqlite";
+const LOG_FILE_NAME: &str = "l4d2-server-hub";
 
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let max_connections = if is_in_memory_sqlite_url(database_url) {
@@ -149,23 +159,27 @@ fn is_in_memory_sqlite_url(database_url: &str) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    let app_identifier = context.config().identifier.clone();
+    let log_state = Arc::new(LogState::default());
+    let log_filter_state = Arc::clone(&log_state);
+    let mut log_targets = vec![log_file_target(&app_identifier)];
+    #[cfg(debug_assertions)]
+    log_targets.push(Target::new(TargetKind::Stdout));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets(log_targets)
+                .level(log::LevelFilter::Trace)
+                .max_file_size(5 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .filter(move |metadata| log_filter_state.allows(metadata.level()))
+                .build(),
+        )
         .setup(|app| {
-            let main_window = app.get_webview_window("main").ok_or_else(|| {
-                io::Error::other("failed to find main webview window during startup")
-            })?;
-            if let Err(err) = configure_startup_window(&main_window) {
-                eprintln!("[startup] failed to configure main window layout: {err}");
-            }
-            let startup_window = main_window.clone();
-            app.listen("l4d2://frontend-ready", move |_| {
-                if let Err(err) = startup_window.show() {
-                    eprintln!("[startup] failed to show main window: {err}");
-                }
-            });
-
             let app_data_dir = app.path().app_data_dir().map_err(|err| {
                 io::Error::other(format!("failed to resolve app data directory: {err}"))
             })?;
@@ -183,6 +197,42 @@ pub fn run() {
                         database_path.display()
                     ))
                 })?;
+            match tauri::async_runtime::block_on(settings_store::get_settings(&pool)) {
+                Ok(settings) => {
+                    log_state.apply_settings(&settings.logging);
+                    log::info!(
+                        "applied persisted logging settings: enabled={}, level={:?}",
+                        settings.logging.enabled,
+                        settings.logging.level
+                    );
+                }
+                Err(err) => {
+                    log::warn!("failed to read logging settings during startup: {err}");
+                }
+            }
+            log::info!("starting L4D2 Server Hub");
+            log::info!(
+                "using application database at '{}'",
+                database_path.display()
+            );
+
+            let main_window = app.get_webview_window("main").ok_or_else(|| {
+                io::Error::other("failed to find main webview window during startup")
+            })?;
+            if let Err(err) = configure_startup_window(&main_window) {
+                log::warn!("failed to configure main window layout: {err}");
+            } else {
+                log::debug!("configured main window startup layout");
+            }
+            let startup_window = main_window.clone();
+            app.listen("l4d2://frontend-ready", move |_| {
+                if let Err(err) = startup_window.show() {
+                    log::warn!("failed to show main window: {err}");
+                } else {
+                    log::debug!("main window shown after frontend ready event");
+                }
+            });
+
             let upstream_config = Arc::new(OnceCell::new());
             let init_pool = pool.clone();
             let init_upstream_config = Arc::clone(&upstream_config);
@@ -195,6 +245,7 @@ pub fn run() {
             app.manage(Arc::new(AppState {
                 pool,
                 upstream_config,
+                log_state,
             }));
 
             Ok(())
@@ -225,8 +276,22 @@ pub fn run() {
             commands::write_export_file,
             commands::import_data
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
+}
+
+fn log_file_target(app_identifier: &str) -> Target {
+    #[cfg(target_os = "windows")]
+    if let Some(roaming_dir) = std::env::var_os("APPDATA") {
+        return Target::new(TargetKind::Folder {
+            path: PathBuf::from(roaming_dir).join(app_identifier).join("logs"),
+            file_name: Some(LOG_FILE_NAME.to_string()),
+        });
+    }
+
+    Target::new(TargetKind::LogDir {
+        file_name: Some(LOG_FILE_NAME.to_string()),
+    })
 }
 
 fn configure_startup_window<R: tauri::Runtime>(
@@ -332,9 +397,7 @@ async fn load_startup_upstream_config(pool: &SqlitePool) -> UpstreamApiConfig {
     let settings = match settings_store::get_settings(pool).await {
         Ok(settings) => settings,
         Err(err) => {
-            eprintln!(
-                "[upstream_api] failed to read settings before nonce fetch, using defaults: {err}"
-            );
+            log::warn!("failed to read settings before nonce fetch, using defaults: {err}");
             models::AppSettings::default()
         }
     };
@@ -346,16 +409,14 @@ async fn load_startup_upstream_config(pool: &SqlitePool) -> UpstreamApiConfig {
     .await
     {
         Ok(config) => {
-            eprintln!(
-                "[upstream_api] loaded startup nonce from public servers page: {}",
+            log::info!(
+                "loaded startup nonce from public servers page: {}",
                 config.nonce
             );
             config
         }
         Err(err) => {
-            eprintln!(
-                "[upstream_api] failed to load startup nonce, falling back to bundled default: {err}"
-            );
+            log::warn!("failed to load startup nonce, falling back to bundled default: {err}");
             UpstreamApiConfig::default()
         }
     }
@@ -386,8 +447,8 @@ mod tests {
 
     fn remove_dir_all_with_retries(path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
-        const ATTEMPTS: usize = 5;
-        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+        const ATTEMPTS: usize = 20;
+        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
         for attempt in 1..=ATTEMPTS {
             match std::fs::remove_dir_all(path) {

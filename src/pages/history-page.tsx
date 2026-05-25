@@ -169,11 +169,15 @@ async function resolveHistoryRowSnapshot(
     return row.snapshot;
   }
 
-  if (!row.serverId) {
+  if (!row.address.trim()) {
     return null;
   }
 
-  const details = await api.getServerDetails(row.serverId, row.address, row.name);
+  const details = await api.getServerDetails({
+    address: row.address,
+    serverId: row.serverId,
+    fallbackName: row.name,
+  });
   return details.snapshot;
 }
 
@@ -989,7 +993,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   };
 
   const openHistoryDetails = async (row: HistoryServerRow) => {
-    if (!row.serverId && !row.snapshot) {
+    if (!row.address.trim() && !row.snapshot) {
       toast.error(messages.serverDetail.snapshotUnavailable);
       return;
     }
@@ -1004,7 +1008,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       return;
     }
 
-    if (!row.serverId) {
+    if (!row.address.trim()) {
       setSelectedServer(null);
       return;
     }
@@ -1012,7 +1016,11 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     setSelectedServer(null);
     setLoadingDetailKey(row.key);
     try {
-      const details = await api.getServerDetails(row.serverId, row.address, row.name);
+      const details = await api.getServerDetails({
+        address: row.address,
+        serverId: row.serverId,
+        fallbackName: row.name,
+      });
       if (selectedDetailKeyRef.current !== row.key) {
         return;
       }
