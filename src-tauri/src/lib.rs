@@ -48,7 +48,7 @@ const MIN_HEIGHT_CAP: f64 = 700.0;
 const STARTUP_WIDTH_CAP: f64 = 1400.0;
 const STARTUP_HEIGHT_CAP: f64 = 900.0;
 const DATABASE_FILE_NAME: &str = "l4d2-server-hub.sqlite";
-const LOG_FILE_NAME: &str = "l4d2-server-hub";
+pub const LOG_FILE_NAME: &str = "l4d2-server-hub";
 
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let max_connections = if is_in_memory_sqlite_url(database_url) {
@@ -274,7 +274,9 @@ pub fn run() {
             commands::update_settings,
             commands::export_data,
             commands::write_export_file,
-            commands::import_data
+            commands::import_data,
+            commands::open_log_folder,
+            commands::clear_log_files
         ])
         .run(context)
         .expect("error while running tauri application");
@@ -282,9 +284,9 @@ pub fn run() {
 
 fn log_file_target(app_identifier: &str) -> Target {
     #[cfg(target_os = "windows")]
-    if let Some(roaming_dir) = std::env::var_os("APPDATA") {
+    if let Some(path) = windows_log_dir_path(app_identifier) {
         return Target::new(TargetKind::Folder {
-            path: PathBuf::from(roaming_dir).join(app_identifier).join("logs"),
+            path,
             file_name: Some(LOG_FILE_NAME.to_string()),
         });
     }
@@ -292,6 +294,21 @@ fn log_file_target(app_identifier: &str) -> Target {
     Target::new(TargetKind::LogDir {
         file_name: Some(LOG_FILE_NAME.to_string()),
     })
+}
+
+#[cfg(target_os = "windows")]
+pub fn windows_log_dir_path(app_identifier: &str) -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(|roaming_dir| PathBuf::from(roaming_dir).join(app_identifier).join("logs"))
+}
+
+pub fn app_log_dir_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<PathBuf> {
+    #[cfg(target_os = "windows")]
+    if let Some(path) = windows_log_dir_path(&app.config().identifier) {
+        return Ok(path);
+    }
+
+    app.path().app_log_dir()
 }
 
 fn configure_startup_window<R: tauri::Runtime>(

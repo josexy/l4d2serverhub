@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, RefreshCw, Save, Settings, Upload } from "lucide-react";
+import {
+  Download,
+  FolderOpen,
+  RefreshCw,
+  Save,
+  Settings,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import { useAppPreferences, useI18n } from "@/lib/app-preferences";
@@ -89,11 +97,15 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
   const [importing, setImporting] = useState(false);
   const [importReplaceConfirmed, setImportReplaceConfirmed] = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(false);
+  const [openingLogFolder, setOpeningLogFolder] = useState(false);
+  const [clearingLogs, setClearingLogs] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const savingRef = useRef(false);
   const loadingSettingsRef = useRef(false);
   const exportingRef = useRef(false);
   const importingRef = useRef(false);
+  const openingLogFolderRef = useRef(false);
+  const clearingLogsRef = useRef(false);
   const copyingExportRef = useRef(false);
   const downloadingExportRef = useRef(false);
 
@@ -376,6 +388,49 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     }
   };
 
+  const handleOpenLogFolder = async () => {
+    if (openingLogFolderRef.current) {
+      return;
+    }
+
+    openingLogFolderRef.current = true;
+    setOpeningLogFolder(true);
+    try {
+      await api.openLogFolder();
+    } catch (openError) {
+      const message = formatCommandError(
+        openError,
+        messages.settings.openLogFolderFailed,
+      );
+      toast.error(message);
+    } finally {
+      openingLogFolderRef.current = false;
+      setOpeningLogFolder(false);
+    }
+  };
+
+  const handleClearLogFiles = async () => {
+    if (clearingLogsRef.current) {
+      return;
+    }
+
+    clearingLogsRef.current = true;
+    setClearingLogs(true);
+    try {
+      const cleared = await api.clearLogFiles();
+      toast.success(messages.settings.clearLogsSuccess(cleared));
+    } catch (clearError) {
+      const message = formatCommandError(
+        clearError,
+        messages.settings.clearLogsFailed,
+      );
+      toast.error(message);
+    } finally {
+      clearingLogsRef.current = false;
+      setClearingLogs(false);
+    }
+  };
+
   return (
     <section className="page-layout">
       <div className="page-heading">
@@ -617,6 +672,35 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+
+                <div className="md:col-start-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleOpenLogFolder()}
+                      disabled={openingLogFolder}
+                    >
+                      <FolderOpen data-icon="inline-start" />
+                      {messages.settings.openLogFolder}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleClearLogFiles()}
+                      disabled={clearingLogs}
+                    >
+                      {clearingLogs ? (
+                        <RefreshCw data-icon="inline-start" className="animate-spin" />
+                      ) : (
+                        <Trash2 data-icon="inline-start" />
+                      )}
+                      {clearingLogs
+                        ? messages.settings.clearingLogs
+                        : messages.settings.clearLogs}
+                    </Button>
+                  </div>
+                </div>
               </form>
             )}
 

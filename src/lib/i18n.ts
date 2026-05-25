@@ -357,6 +357,13 @@ const en = {
     exportFailed: "Could not export data.",
     importFailed: "Could not import data.",
     invalidSettings: "Some settings values are invalid.",
+    openLogFolder: "Open log folder",
+    openLogFolderFailed: "Could not open the log folder.",
+    clearLogs: "Clear logs",
+    clearingLogs: "Clearing logs...",
+    clearLogsSuccess: (count: number) =>
+      count === 1 ? "1 log file cleared." : `${count} log files cleared.`,
+    clearLogsFailed: "Could not clear log files.",
   },
   about: {
     eyebrow: "About",
@@ -777,6 +784,12 @@ const zhCn: typeof en = {
     exportFailed: "无法导出数据。",
     importFailed: "无法导入数据。",
     invalidSettings: "部分设置值无效。",
+    openLogFolder: "打开日志文件夹",
+    openLogFolderFailed: "无法打开日志文件夹。",
+    clearLogs: "清空日志",
+    clearingLogs: "正在清空日志...",
+    clearLogsSuccess: (count: number) => `已清空 ${count} 个日志文件。`,
+    clearLogsFailed: "无法清空日志文件。",
   },
   about: {
     eyebrow: "关于",

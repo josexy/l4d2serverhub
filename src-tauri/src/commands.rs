@@ -9,7 +9,8 @@ use crate::{favorites_store, history_store, import_export, search_history_store,
 use crate::{steam_launcher, SharedState};
 use sqlx::SqlitePool;
 use std::{cmp::Reverse, path::Path, sync::Arc, time::Duration};
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::OnceCell;
 
 fn command_result<T>(operation: &str, result: AppResult<T>) -> CommandResult<T> {
@@ -260,6 +261,16 @@ pub async fn import_data(
         "import_data",
         import_data_impl(&state.pool, &state.log_state, payload).await,
     )
+}
+
+#[tauri::command]
+pub async fn open_log_folder(app: AppHandle) -> CommandResult<()> {
+    command_result("open_log_folder", open_log_folder_impl(&app).await)
+}
+
+#[tauri::command]
+pub async fn clear_log_files(app: AppHandle) -> CommandResult<u32> {
+    command_result("clear_log_files", clear_log_files_impl(&app).await)
 }
 
 async fn query_servers_impl(
@@ -532,6 +543,88 @@ async fn write_export_file_impl(path: &str, contents: &str) -> AppResult<()> {
     tokio::fs::write(path, contents)
         .await
         .map_err(|err| crate::errors::AppError::ExportFailed(err.to_string()))
+}
+
+async fn open_log_folder_impl(app: &AppHandle) -> AppResult<()> {
+    let log_dir = crate::app_log_dir_path(app)
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+    tokio::fs::create_dir_all(&log_dir)
+        .await
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+
+    app.opener()
+        .open_path(log_dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))
+}
+
+async fn clear_log_files_impl(app: &AppHandle) -> AppResult<u32> {
+    let log_dir = crate::app_log_dir_path(app)
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+    let cleared = clear_log_files_in_dir(&log_dir).await?;
+    log::info!("cleared {cleared} log file(s)");
+    Ok(cleared)
+}
+
+async fn clear_log_files_in_dir(log_dir: &Path) -> AppResult<u32> {
+    tokio::fs::create_dir_all(log_dir)
+        .await
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+
+    let mut entries = tokio::fs::read_dir(log_dir)
+        .await
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+    let mut cleared = 0;
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?
+    {
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+        if !file_type.is_file() || !is_app_log_file(&path) {
+            continue;
+        }
+
+        if is_active_log_file(&path) {
+            truncate_log_file(&path).await?;
+        } else {
+            tokio::fs::remove_file(&path)
+                .await
+                .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))?;
+        }
+
+        cleared += 1;
+    }
+
+    Ok(cleared)
+}
+
+async fn truncate_log_file(path: &Path) -> AppResult<()> {
+    tokio::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .await
+        .map(|_| ())
+        .map_err(|err| crate::errors::AppError::LogOperationFailed(err.to_string()))
+}
+
+fn is_app_log_file(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    file_name.starts_with(crate::LOG_FILE_NAME)
+        && (file_name.ends_with(".log") || file_name.ends_with(".log.bak"))
+}
+
+fn is_active_log_file(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str())
+        == Some(&format!("{}.log", crate::LOG_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -831,6 +924,32 @@ mod tests {
 
         let contents = std::fs::read_to_string(&path).unwrap();
         assert_eq!(contents, r#"{"version":1}"#);
+
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn clear_log_files_truncates_active_log_and_removes_rotated_logs() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("l4d2-server-hub-logs-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let current_log = temp_dir.join("l4d2-server-hub.log");
+        let rotated_log = temp_dir.join("l4d2-server-hub_2026-05-25.log");
+        let unrelated_log = temp_dir.join("other.log");
+        let nested_dir = temp_dir.join("l4d2-server-hub_nested.log");
+        std::fs::write(&current_log, "current").unwrap();
+        std::fs::write(&rotated_log, "rotated").unwrap();
+        std::fs::write(&unrelated_log, "other").unwrap();
+        std::fs::create_dir_all(&nested_dir).unwrap();
+
+        let cleared = clear_log_files_in_dir(&temp_dir).await.unwrap();
+
+        assert_eq!(cleared, 2);
+        assert!(current_log.exists());
+        assert_eq!(std::fs::read_to_string(&current_log).unwrap(), "");
+        assert!(!rotated_log.exists());
+        assert!(unrelated_log.exists());
+        assert!(nested_dir.exists());
 
         std::fs::remove_dir_all(temp_dir).unwrap();
     }

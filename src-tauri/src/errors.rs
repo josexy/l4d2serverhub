@@ -19,6 +19,8 @@ pub enum AppError {
     InvalidSettings(String),
     #[error("Export failed: {0}")]
     ExportFailed(String),
+    #[error("Log operation failed: {0}")]
+    LogOperationFailed(String),
     #[error("Unexpected error: {0}")]
     Unexpected(String),
 }
@@ -34,6 +36,7 @@ impl AppError {
             AppError::ImportInvalid(_) => CommandErrorKind::ImportInvalid,
             AppError::InvalidSettings(_) => CommandErrorKind::InvalidSettings,
             AppError::ExportFailed(_) => CommandErrorKind::ExportFailed,
+            AppError::LogOperationFailed(_) => CommandErrorKind::LogOperationFailed,
             AppError::Unexpected(_) => CommandErrorKind::Unexpected,
         }
     }
@@ -58,6 +61,7 @@ pub enum CommandErrorKind {
     ImportInvalid,
     InvalidSettings,
     ExportFailed,
+    LogOperationFailed,
     Unexpected,
 }
 

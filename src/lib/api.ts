@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
@@ -17,6 +18,7 @@ import type {
 export const HISTORY_UPDATED_EVENT = "l4d2:history-updated";
 
 export const api = {
+  getAppVersion: () => getVersion(),
   queryServers: (params: ServerQueryParams) =>
     invoke<ServerQueryResult>("query_servers", { params }),
   getServerDetails: ({
@@ -73,6 +75,8 @@ export const api = {
   updateSettings: (settings: AppSettings) =>
     invoke<AppSettings>("update_settings", { settings }),
   exportData: () => invoke<BackupPayload>("export_data"),
+  openLogFolder: () => invoke<void>("open_log_folder"),
+  clearLogFiles: () => invoke<number>("clear_log_files"),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   importData: (payload: BackupPayload) =>
