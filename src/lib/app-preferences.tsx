@@ -10,7 +10,8 @@ import {
 import { useTheme } from "next-themes";
 
 import { api } from "@/lib/api";
-import { DEFAULT_APP_SETTINGS, getMessages, resolveUiLocale, type UiLocale } from "@/lib/i18n";
+import { DEFAULT_APP_SETTINGS } from "@/lib/default-settings";
+import { getMessages, resolveUiLocale, type UiLocale } from "@/lib/i18n";
 import type { AppSettings } from "@/lib/types";
 
 type EffectiveTheme = "light" | "dark";
