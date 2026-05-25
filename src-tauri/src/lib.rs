@@ -284,8 +284,8 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+#[cfg(target_os = "windows")]
 fn log_file_target(app_identifier: &str) -> Target {
-    #[cfg(target_os = "windows")]
     if let Some(path) = windows_log_dir_path(app_identifier) {
         return Target::new(TargetKind::Folder {
             path,
@@ -293,6 +293,13 @@ fn log_file_target(app_identifier: &str) -> Target {
         });
     }
 
+    Target::new(TargetKind::LogDir {
+        file_name: Some(LOG_FILE_NAME.to_string()),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn log_file_target(_app_identifier: &str) -> Target {
     Target::new(TargetKind::LogDir {
         file_name: Some(LOG_FILE_NAME.to_string()),
     })
