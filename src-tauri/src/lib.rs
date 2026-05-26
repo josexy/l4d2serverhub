@@ -328,6 +328,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::query_servers,
             commands::get_server_details,
+            commands::query_saved_server_snapshots,
             commands::connect_to_server,
             commands::list_favorites,
             commands::add_favorite,

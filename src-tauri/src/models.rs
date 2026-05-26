@@ -786,6 +786,33 @@ pub struct ServerQueryResult {
     pub refreshed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SavedServerSnapshotQueryParams {
+    pub targets: Vec<SavedServerSnapshotQueryTarget>,
+    pub page: usize,
+    pub page_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SavedServerSnapshotQueryTarget {
+    pub address: String,
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub fallback_name: Option<String>,
+    #[serde(default)]
+    pub fallback_snapshot: Option<ServerSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedServerSnapshotQueryResult {
+    pub page_result: ServerQueryResult,
+    pub snapshots: Vec<ServerSnapshot>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

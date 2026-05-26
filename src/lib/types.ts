@@ -173,6 +173,24 @@ export interface ServerQueryResult {
   refreshedAt: string | null;
 }
 
+export interface SavedServerSnapshotQueryTarget {
+  address: string;
+  serverId?: string | null;
+  fallbackName?: string | null;
+  fallbackSnapshot?: ServerSnapshot | null;
+}
+
+export interface SavedServerSnapshotQueryParams {
+  targets: SavedServerSnapshotQueryTarget[];
+  page: number;
+  pageSize: number;
+}
+
+export interface SavedServerSnapshotQueryResult {
+  pageResult: ServerQueryResult;
+  snapshots: ServerSnapshot[];
+}
+
 export interface BackupPayload {
   version: number;
   settings: AppSettings;

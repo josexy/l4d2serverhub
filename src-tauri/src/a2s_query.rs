@@ -1,12 +1,17 @@
 use crate::errors::{AppError, AppResult};
 use crate::models::{
-    format_player_duration, ServerDetails, ServerPlayer, ServerSnapshot, ServerSnapshotInput,
+    format_player_duration, SavedServerSnapshotQueryParams, SavedServerSnapshotQueryResult,
+    SavedServerSnapshotQueryTarget, ServerDetails, ServerPlayer, ServerQueryResult, ServerSnapshot,
+    ServerSnapshotInput,
 };
 use crate::steam_launcher;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use std::collections::{HashMap, VecDeque};
+use std::io::ErrorKind;
+use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use tokio::net::{lookup_host, UdpSocket};
-use tokio::time;
+use tokio::time::{self, Instant as TokioInstant};
 
 const SIMPLE_RESPONSE_HEADER: i32 = -1;
 const SPLIT_RESPONSE_HEADER: i32 = -2;
@@ -18,6 +23,7 @@ const A2S_PLAYER: u8 = 0x55;
 const DEFAULT_CHALLENGE: i32 = -1;
 const MAX_PACKET_SIZE: usize = 1400;
 const MAX_SPLIT_PACKETS: usize = 15;
+pub const DEFAULT_BATCH_CONCURRENCY: usize = 64;
 
 #[derive(Debug, Clone, PartialEq)]
 struct A2sInfo {
@@ -54,6 +60,420 @@ pub async fn query_server_details(
     let info = query_info(&socket, timeout).await?;
     let ping_ms = u32::try_from(started_at.elapsed().as_millis()).unwrap_or(u32::MAX);
     let players = query_players(&socket, timeout).await?;
+    let snapshot = snapshot_from_info(
+        parsed,
+        normalized_address,
+        server_id,
+        fallback_name,
+        info,
+        ping_ms,
+    )?;
+
+    Ok(ServerDetails { snapshot, players })
+}
+
+pub async fn query_server_snapshot(
+    address: &str,
+    server_id: Option<&str>,
+    fallback_name: Option<&str>,
+    timeout: Duration,
+) -> AppResult<ServerSnapshot> {
+    let parsed = steam_launcher::parse_server_address(address)?;
+    let normalized_address = parsed.as_string();
+    let socket_address = resolve_socket_address(&normalized_address).await?;
+    let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
+        AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
+    })?;
+    socket.connect(socket_address).await.map_err(|err| {
+        AppError::UpstreamUnavailable(format!("failed to connect UDP socket: {err}"))
+    })?;
+
+    let started_at = Instant::now();
+    let info = query_info(&socket, timeout).await?;
+    let ping_ms = u32::try_from(started_at.elapsed().as_millis()).unwrap_or(u32::MAX);
+    snapshot_from_info(
+        parsed,
+        normalized_address,
+        server_id,
+        fallback_name,
+        info,
+        ping_ms,
+    )
+}
+
+pub async fn query_saved_server_snapshots(
+    params: SavedServerSnapshotQueryParams,
+    timeout: Duration,
+    concurrency: usize,
+) -> AppResult<SavedServerSnapshotQueryResult> {
+    let total = params.targets.len();
+    let page = params.page.max(1);
+    let page_size = params.page_size.max(1);
+    let refreshed_at = Utc::now();
+    let worker = SavedSnapshotWorker::new(timeout, concurrency, refreshed_at).await?;
+    let snapshots = worker.query(params.targets).await?;
+    let start = (page - 1).saturating_mul(page_size).min(snapshots.len());
+    let end = (start + page_size).min(snapshots.len());
+    let page_items = snapshots[start..end].to_vec();
+
+    Ok(SavedServerSnapshotQueryResult {
+        page_result: ServerQueryResult {
+            items: page_items,
+            page,
+            page_size,
+            total,
+            refreshed_at: Some(refreshed_at),
+        },
+        snapshots,
+    })
+}
+
+struct SavedSnapshotWorker {
+    socket: UdpSocket,
+    timeout: Duration,
+    concurrency: usize,
+    refreshed_at: DateTime<Utc>,
+    queue: VecDeque<SavedSnapshotJob>,
+    pending: HashMap<SocketAddr, PendingInfoQuery>,
+    snapshots: Vec<Option<ServerSnapshot>>,
+}
+
+struct SavedSnapshotJob {
+    index: usize,
+    target: SavedServerSnapshotQueryTarget,
+    parsed: crate::models::ServerAddress,
+    normalized_address: String,
+    socket_address: SocketAddr,
+}
+
+struct PendingInfoQuery {
+    job: SavedSnapshotJob,
+    sent_at: Instant,
+    deadline: TokioInstant,
+    challenged: bool,
+    split: Option<SplitAssembly>,
+}
+
+struct SplitAssembly {
+    total: u8,
+    parts: Vec<Option<Vec<u8>>>,
+}
+
+enum ReceivedPayload {
+    Payload(Vec<u8>),
+    Split(SplitPacket),
+}
+
+impl SavedSnapshotWorker {
+    async fn new(
+        timeout: Duration,
+        concurrency: usize,
+        refreshed_at: DateTime<Utc>,
+    ) -> AppResult<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
+            AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
+        })?;
+
+        Ok(Self {
+            socket,
+            timeout,
+            concurrency: concurrency.max(1),
+            refreshed_at,
+            queue: VecDeque::new(),
+            pending: HashMap::new(),
+            snapshots: Vec::new(),
+        })
+    }
+
+    async fn query(
+        mut self,
+        targets: Vec<SavedServerSnapshotQueryTarget>,
+    ) -> AppResult<Vec<ServerSnapshot>> {
+        self.snapshots = vec![None; targets.len()];
+        for (index, target) in targets.into_iter().enumerate() {
+            match self.prepare_job(index, target).await {
+                Ok(job) => self.queue.push_back(job),
+                Err((target, error)) => {
+                    self.store_snapshot(
+                        index,
+                        snapshot_from_query_error(target, error, self.refreshed_at)?,
+                    );
+                }
+            }
+        }
+
+        while !self.queue.is_empty() || !self.pending.is_empty() {
+            self.start_available_queries().await?;
+            if self.pending.is_empty() {
+                continue;
+            }
+
+            let next_deadline = self.next_deadline().ok_or_else(|| {
+                AppError::Unexpected("A2S worker had pending queries without deadlines".to_string())
+            })?;
+            tokio::select! {
+                packet = receive_worker_packet(&self.socket) => {
+                    if let Some((address, payload)) = packet? {
+                        self.handle_packet(address, payload).await?;
+                    }
+                }
+                _ = time::sleep_until(next_deadline) => {
+                    self.expire_timed_out_queries()?;
+                }
+            }
+        }
+
+        Ok(self.snapshots.into_iter().flatten().collect())
+    }
+
+    async fn prepare_job(
+        &self,
+        index: usize,
+        target: SavedServerSnapshotQueryTarget,
+    ) -> Result<SavedSnapshotJob, (SavedServerSnapshotQueryTarget, AppError)> {
+        let parsed = match steam_launcher::parse_server_address(&target.address) {
+            Ok(parsed) => parsed,
+            Err(error) => return Err((target, error)),
+        };
+        let normalized_address = parsed.as_string();
+        let socket_address = match resolve_socket_address(&normalized_address).await {
+            Ok(address) => address,
+            Err(error) => return Err((target, error)),
+        };
+
+        Ok(SavedSnapshotJob {
+            index,
+            target,
+            parsed,
+            normalized_address,
+            socket_address,
+        })
+    }
+
+    async fn start_available_queries(&mut self) -> AppResult<()> {
+        while self.pending.len() < self.concurrency {
+            let Some(position) = self
+                .queue
+                .iter()
+                .position(|job| !self.pending.contains_key(&job.socket_address))
+            else {
+                break;
+            };
+            let job = self.queue.remove(position).ok_or_else(|| {
+                AppError::Unexpected("failed to remove queued A2S job".to_string())
+            })?;
+
+            if let Err(error) = self.send_info_request(job.socket_address, None).await {
+                self.store_snapshot(
+                    job.index,
+                    snapshot_from_query_error(job.target, error, self.refreshed_at)?,
+                );
+                continue;
+            }
+
+            self.pending.insert(
+                job.socket_address,
+                PendingInfoQuery {
+                    job,
+                    sent_at: Instant::now(),
+                    deadline: TokioInstant::now() + self.timeout,
+                    challenged: false,
+                    split: None,
+                },
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn send_info_request(
+        &self,
+        address: SocketAddr,
+        challenge: Option<i32>,
+    ) -> AppResult<()> {
+        self.socket
+            .send_to(&info_request(challenge), address)
+            .await
+            .map(|_| ())
+            .map_err(|err| {
+                AppError::UpstreamUnavailable(format!("failed to send A2S query: {err}"))
+            })
+    }
+
+    async fn handle_packet(
+        &mut self,
+        address: SocketAddr,
+        payload: ReceivedPayload,
+    ) -> AppResult<()> {
+        let payload = {
+            let Some(pending) = self.pending.get_mut(&address) else {
+                return Ok(());
+            };
+
+            match payload {
+                ReceivedPayload::Payload(payload) => payload,
+                ReceivedPayload::Split(part) => match pending.push_split_part(part)? {
+                    Some(payload) => payload,
+                    None => return Ok(()),
+                },
+            }
+        };
+
+        if payload.first().copied() == Some(CHALLENGE_RESPONSE) {
+            let mut reader = ByteReader::new(&payload[1..]);
+            let challenge = reader.read_i32()?;
+            if self
+                .pending
+                .get(&address)
+                .map(|pending| pending.challenged)
+                .unwrap_or(false)
+            {
+                self.finish_with_error(
+                    address,
+                    AppError::UpstreamUnavailable(
+                        "A2S_INFO returned repeated challenge".to_string(),
+                    ),
+                )?;
+                return Ok(());
+            }
+
+            self.send_info_request(address, Some(challenge)).await?;
+            let pending = self
+                .pending
+                .get_mut(&address)
+                .ok_or_else(|| AppError::Unexpected("A2S pending query disappeared".to_string()))?;
+            pending.challenged = true;
+            pending.split = None;
+            pending.sent_at = Instant::now();
+            pending.deadline = TokioInstant::now() + self.timeout;
+            return Ok(());
+        }
+
+        let info = parse_info_response(&payload);
+        match info {
+            Ok(info) => self.finish_with_info(address, info)?,
+            Err(error) => self.finish_with_error(address, error)?,
+        }
+
+        Ok(())
+    }
+
+    fn finish_with_info(&mut self, address: SocketAddr, info: A2sInfo) -> AppResult<()> {
+        let pending = self
+            .pending
+            .remove(&address)
+            .ok_or_else(|| AppError::Unexpected("A2S pending query disappeared".to_string()))?;
+        let ping_ms = u32::try_from(pending.sent_at.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let snapshot = snapshot_from_info(
+            pending.job.parsed,
+            pending.job.normalized_address,
+            pending.job.target.server_id.as_deref(),
+            pending.job.target.fallback_name.as_deref(),
+            info,
+            ping_ms,
+        )?;
+        self.store_snapshot(pending.job.index, snapshot);
+        Ok(())
+    }
+
+    fn finish_with_error(&mut self, address: SocketAddr, error: AppError) -> AppResult<()> {
+        let pending = self
+            .pending
+            .remove(&address)
+            .ok_or_else(|| AppError::Unexpected("A2S pending query disappeared".to_string()))?;
+        let snapshot = snapshot_from_query_error(pending.job.target, error, self.refreshed_at)?;
+        self.store_snapshot(pending.job.index, snapshot);
+        Ok(())
+    }
+
+    fn expire_timed_out_queries(&mut self) -> AppResult<()> {
+        let now = TokioInstant::now();
+        let expired = self
+            .pending
+            .iter()
+            .filter_map(|(address, pending)| (pending.deadline <= now).then_some(*address))
+            .collect::<Vec<_>>();
+
+        for address in expired {
+            self.finish_with_error(address, AppError::NetworkTimeout)?;
+        }
+
+        Ok(())
+    }
+
+    fn next_deadline(&self) -> Option<TokioInstant> {
+        self.pending.values().map(|pending| pending.deadline).min()
+    }
+
+    fn store_snapshot(&mut self, index: usize, snapshot: ServerSnapshot) {
+        if let Some(slot) = self.snapshots.get_mut(index) {
+            *slot = Some(snapshot);
+        }
+    }
+}
+
+impl PendingInfoQuery {
+    fn push_split_part(&mut self, part: SplitPacket) -> AppResult<Option<Vec<u8>>> {
+        let assembly = self.split.get_or_insert_with(|| SplitAssembly {
+            total: part.total,
+            parts: vec![None; usize::from(part.total)],
+        });
+
+        if assembly.total != part.total {
+            return Err(AppError::UpstreamUnavailable(
+                "A2S split response changed packet count".to_string(),
+            ));
+        }
+        insert_split_part(&mut assembly.parts, part)?;
+
+        if assembly.parts.iter().any(Option::is_none) {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            assembly.parts.iter().flatten().flatten().copied().collect(),
+        ))
+    }
+}
+
+async fn receive_worker_packet(
+    socket: &UdpSocket,
+) -> AppResult<Option<(SocketAddr, ReceivedPayload)>> {
+    let mut packet = vec![0; MAX_PACKET_SIZE];
+    let (size, address) = match socket.recv_from(&mut packet).await {
+        Ok(packet) => packet,
+        Err(err) if err.kind() == ErrorKind::ConnectionReset => return Ok(None),
+        Err(err) => {
+            return Err(AppError::UpstreamUnavailable(format!(
+                "failed to receive A2S response: {err}"
+            )));
+        }
+    };
+    packet.truncate(size);
+    Ok(Some((address, parse_worker_payload(&packet)?)))
+}
+
+fn parse_worker_payload(packet: &[u8]) -> AppResult<ReceivedPayload> {
+    let mut reader = ByteReader::new(packet);
+    let header = reader.read_i32()?;
+
+    match header {
+        SIMPLE_RESPONSE_HEADER => Ok(ReceivedPayload::Payload(packet[4..].to_vec())),
+        SPLIT_RESPONSE_HEADER => Ok(ReceivedPayload::Split(parse_split_packet(packet)?)),
+        value => Err(AppError::UpstreamUnavailable(format!(
+            "A2S response had unsupported header {value}"
+        ))),
+    }
+}
+
+fn snapshot_from_info(
+    parsed: crate::models::ServerAddress,
+    normalized_address: String,
+    server_id: Option<&str>,
+    fallback_name: Option<&str>,
+    info: A2sInfo,
+    ping_ms: u32,
+) -> AppResult<ServerSnapshot> {
     let name = if info.name.trim().is_empty() {
         fallback_name
             .map(str::trim)
@@ -64,7 +484,7 @@ pub async fn query_server_details(
         info.name.clone()
     };
 
-    let snapshot = ServerSnapshot::try_new(ServerSnapshotInput {
+    ServerSnapshot::try_new(ServerSnapshotInput {
         server_id: server_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -87,9 +507,58 @@ pub async fn query_server_details(
         last_seen_at: Utc::now(),
         last_query_error: None,
     })
-    .map_err(AppError::Unexpected)?;
+    .map_err(AppError::Unexpected)
+}
 
-    Ok(ServerDetails { snapshot, players })
+fn snapshot_from_query_error(
+    target: SavedServerSnapshotQueryTarget,
+    error: AppError,
+    refreshed_at: chrono::DateTime<Utc>,
+) -> AppResult<ServerSnapshot> {
+    let message = error.to_string();
+    if let Some(mut snapshot) = target.fallback_snapshot {
+        if target
+            .server_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            snapshot.server_id = target.server_id;
+        }
+        snapshot.last_seen_at = refreshed_at;
+        snapshot.last_query_error = Some(message);
+        return Ok(snapshot);
+    }
+
+    let parsed = steam_launcher::parse_server_address(&target.address)?;
+    let normalized_address = parsed.as_string();
+    ServerSnapshot::try_new(ServerSnapshotInput {
+        server_id: target
+            .server_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        address: normalized_address,
+        ip: parsed.ip,
+        port: parsed.port,
+        name: target
+            .fallback_name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| target.address.trim().to_string()),
+        map: String::new(),
+        mode_tags: Vec::new(),
+        game_description: None,
+        server_type: None,
+        environment: None,
+        version: None,
+        players: 0,
+        max_players: 0,
+        bots: 0,
+        ping_ms: None,
+        vac_secured: false,
+        last_seen_at: refreshed_at,
+        last_query_error: Some(message),
+    })
+    .map_err(AppError::Unexpected)
 }
 
 async fn resolve_socket_address(address: &str) -> AppResult<std::net::SocketAddr> {
@@ -499,6 +968,31 @@ mod tests {
         payload
     }
 
+    fn sample_snapshot(address: &str) -> ServerSnapshot {
+        let parsed = steam_launcher::parse_server_address(address).unwrap();
+        ServerSnapshot::try_new(ServerSnapshotInput {
+            server_id: Some("server-test".to_string()),
+            address: parsed.as_string(),
+            ip: parsed.ip,
+            port: parsed.port,
+            name: "Cached Server".to_string(),
+            map: "c1m1_hotel".to_string(),
+            mode_tags: vec!["coop".to_string()],
+            game_description: Some("Left 4 Dead 2".to_string()),
+            server_type: Some("Dedicated".to_string()),
+            environment: Some("Linux".to_string()),
+            version: Some("2.2.4.3".to_string()),
+            players: 1,
+            max_players: 4,
+            bots: 0,
+            ping_ms: Some(42),
+            vac_secured: true,
+            last_seen_at: Utc::now(),
+            last_query_error: None,
+        })
+        .unwrap()
+    }
+
     #[test]
     fn parses_info_response_into_snapshot_fields() {
         let info = parse_info_response(&sample_info_payload()).unwrap();
@@ -627,5 +1121,87 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(error, AppError::InvalidAddress(_)));
+    }
+
+    #[tokio::test]
+    async fn saved_snapshot_batch_returns_error_snapshot_for_failed_query() {
+        let target = SavedServerSnapshotQueryTarget {
+            address: "127.0.0.1:9".to_string(),
+            server_id: Some("server-test".to_string()),
+            fallback_name: Some("Cached Server".to_string()),
+            fallback_snapshot: Some(sample_snapshot("127.0.0.1:9")),
+        };
+        let result = query_saved_server_snapshots(
+            SavedServerSnapshotQueryParams {
+                targets: vec![target],
+                page: 1,
+                page_size: 25,
+            },
+            Duration::from_millis(1),
+            4,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.snapshots.len(), 1);
+        assert_eq!(result.page_result.items.len(), 1);
+        assert_eq!(result.snapshots[0].address, "127.0.0.1:9");
+        assert_eq!(result.snapshots[0].name, "Cached Server");
+        assert!(result.snapshots[0].last_query_error.is_some());
+    }
+
+    #[tokio::test]
+    async fn saved_snapshot_batch_reuses_one_udp_socket() {
+        async fn serve_one_info_response() -> (String, tokio::task::JoinHandle<SocketAddr>) {
+            let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let address = server.local_addr().unwrap();
+            let handle = tokio::spawn(async move {
+                let mut buffer = [0; MAX_PACKET_SIZE];
+                let (_size, peer) = server.recv_from(&mut buffer).await.unwrap();
+                let mut response = Vec::from(SIMPLE_RESPONSE_HEADER.to_le_bytes());
+                response.extend_from_slice(&sample_info_payload());
+                server.send_to(&response, peer).await.unwrap();
+                peer
+            });
+
+            (address.to_string(), handle)
+        }
+
+        let (address_a, server_a) = serve_one_info_response().await;
+        let (address_b, server_b) = serve_one_info_response().await;
+        let result = query_saved_server_snapshots(
+            SavedServerSnapshotQueryParams {
+                targets: vec![
+                    SavedServerSnapshotQueryTarget {
+                        address: address_a,
+                        server_id: Some("server-a".to_string()),
+                        fallback_name: None,
+                        fallback_snapshot: None,
+                    },
+                    SavedServerSnapshotQueryTarget {
+                        address: address_b,
+                        server_id: Some("server-b".to_string()),
+                        fallback_name: None,
+                        fallback_snapshot: None,
+                    },
+                ],
+                page: 1,
+                page_size: 25,
+            },
+            Duration::from_secs(1),
+            2,
+        )
+        .await
+        .unwrap();
+
+        let peer_a = server_a.await.unwrap();
+        let peer_b = server_b.await.unwrap();
+
+        assert_eq!(peer_a, peer_b);
+        assert_eq!(result.snapshots.len(), 2);
+        assert!(result
+            .snapshots
+            .iter()
+            .all(|snapshot| snapshot.last_query_error.is_none()));
     }
 }

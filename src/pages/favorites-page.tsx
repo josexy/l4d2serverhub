@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { api, formatCommandError } from "@/lib/api";
-import { useI18n } from "@/lib/app-preferences";
+import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
 import {
@@ -68,6 +68,7 @@ import type {
   Favorite,
   FavoriteGroup,
   FavoriteInput,
+  SavedServerSnapshotQueryTarget,
   ServerQueryResult,
   ServerSnapshot,
 } from "@/lib/types";
@@ -154,14 +155,42 @@ function formatPing(pingMs: number | null | undefined, unknownLabel: string) {
   return pingMs === null || pingMs === undefined ? unknownLabel : `${pingMs} ms`;
 }
 
+function favoriteSnapshotTarget(
+  favorite: Favorite,
+): SavedServerSnapshotQueryTarget {
+  return {
+    address: favorite.address,
+    serverId: favoriteServerId(favorite),
+    fallbackName: favorite.customName ?? favorite.lastSnapshot?.name ?? null,
+    fallbackSnapshot: favorite.lastSnapshot,
+  };
+}
+
 async function queryAddressSnapshots(
-  addresses: string[],
+  targets: SavedServerSnapshotQueryTarget[],
   page: number,
   pageSize: number,
+  useA2s: boolean,
 ): Promise<{
   pageResult: ServerQueryResult;
   snapshotsByAddress: Map<string, ServerSnapshot>;
 }> {
+  if (useA2s) {
+    const result = await api.querySavedServerSnapshots({
+      targets,
+      page,
+      pageSize,
+    });
+
+    return {
+      pageResult: result.pageResult,
+      snapshotsByAddress: new Map(
+        result.snapshots.map((server) => [server.address, server]),
+      ),
+    };
+  }
+
+  const addresses = targets.map((target) => target.address);
   const params = {
     page,
     pageSize,
@@ -319,6 +348,7 @@ type FavoritesPageProps = {
 
 export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const { messages } = useI18n();
+  const { settings } = useAppPreferences();
   const fallbackDefaultGroup = useMemo<FavoriteGroup>(
     () => ({
       id: DEFAULT_GROUP_ID,
@@ -980,7 +1010,14 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     }
 
     const targets = currentFavorites;
-    const addresses = [...new Set(targets.map((favorite) => favorite.address))];
+    const snapshotTargets = [
+      ...new Map(
+        targets.map((favorite) => [
+          favorite.address,
+          favoriteSnapshotTarget(favorite),
+        ]),
+      ).values(),
+    ];
 
     if (targets.length === 0) {
       return;
@@ -999,9 +1036,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
 
     try {
       const { pageResult, snapshotsByAddress } = await queryAddressSnapshots(
-        addresses,
+        snapshotTargets,
         requestedPage,
         requestedPageSize,
+        settings.serverDetailsQueryMode === "a2sUdp",
       );
 
       if (refreshRunIdRef.current !== runId) {

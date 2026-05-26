@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { HISTORY_UPDATED_EVENT, api, formatCommandError } from "@/lib/api";
-import { useI18n } from "@/lib/app-preferences";
+import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
 import {
@@ -53,6 +53,7 @@ import type {
   FavoriteGroup,
   FavoriteInput,
   HistoryRecord,
+  SavedServerSnapshotQueryTarget,
   ServerQueryResult,
   ServerSnapshot,
 } from "@/lib/types";
@@ -188,14 +189,42 @@ function formatPing(
   return pingMs === null || pingMs === undefined ? unknownLabel : `${pingMs} ms`;
 }
 
+function historySnapshotTarget(
+  row: HistoryServerRow,
+): SavedServerSnapshotQueryTarget {
+  return {
+    address: row.address,
+    serverId: row.serverId,
+    fallbackName: row.name,
+    fallbackSnapshot: row.snapshot,
+  };
+}
+
 async function queryAddressSnapshots(
-  addresses: string[],
+  targets: SavedServerSnapshotQueryTarget[],
   page: number,
   pageSize: number,
+  useA2s: boolean,
 ): Promise<{
   pageResult: ServerQueryResult;
   snapshotsByAddress: Map<string, ServerSnapshot>;
 }> {
+  if (useA2s) {
+    const result = await api.querySavedServerSnapshots({
+      targets,
+      page,
+      pageSize,
+    });
+
+    return {
+      pageResult: result.pageResult,
+      snapshotsByAddress: new Map(
+        result.snapshots.map((server) => [server.address, server]),
+      ),
+    };
+  }
+
+  const addresses = targets.map((target) => target.address);
   const params = {
     page,
     pageSize,
@@ -404,6 +433,7 @@ type HistoryPageProps = {
 
 export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const { messages, formatDateTime } = useI18n();
+  const { settings } = useAppPreferences();
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [groups, setGroups] = useState<FavoriteGroup[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
@@ -725,7 +755,11 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     }
 
     const targets = sourceRows;
-    const addresses = [...new Set(targets.map((row) => row.address))];
+    const snapshotTargets = [
+      ...new Map(
+        targets.map((row) => [row.address, historySnapshotTarget(row)]),
+      ).values(),
+    ];
 
     if (targets.length === 0) {
       toast.info(messages.history.toasts.refreshUnavailable);
@@ -745,9 +779,10 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
 
     try {
       const { pageResult, snapshotsByAddress } = await queryAddressSnapshots(
-        addresses,
+        snapshotTargets,
         requestedPage,
         requestedPageSize,
+        settings.serverDetailsQueryMode === "a2sUdp",
       );
 
       if (refreshRunIdRef.current !== runId) {

@@ -8,6 +8,8 @@ import type {
   FavoriteGroup,
   FavoriteInput,
   HistoryRecord,
+  SavedServerSnapshotQueryParams,
+  SavedServerSnapshotQueryResult,
   SearchHistoryRecord,
   ServerDetails,
   ServerQueryParams,
@@ -34,6 +36,10 @@ export const api = {
       address,
       serverId,
       fallbackName,
+    }),
+  querySavedServerSnapshots: (params: SavedServerSnapshotQueryParams) =>
+    invoke<SavedServerSnapshotQueryResult>("query_saved_server_snapshots", {
+      params,
     }),
   connectToServer: (
     address: string,

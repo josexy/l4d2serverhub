@@ -1,7 +1,8 @@
 use crate::errors::{AppError, AppResult, CommandError, CommandResult};
 use crate::import_export::BackupPayload;
 use crate::models::{
-    AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, SearchHistoryRecord,
+    AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord,
+    SavedServerSnapshotQueryParams, SavedServerSnapshotQueryResult, SearchHistoryRecord,
     ServerDetails, ServerDetailsQueryMode, ServerFilters, ServerQueryParams, ServerQueryResult,
     ServerSnapshot, ServerSort,
 };
@@ -71,6 +72,17 @@ pub async fn get_server_details(
             fallback_name.as_deref(),
         )
         .await,
+    )
+}
+
+#[tauri::command]
+pub async fn query_saved_server_snapshots(
+    state: State<'_, SharedState>,
+    params: SavedServerSnapshotQueryParams,
+) -> CommandResult<SavedServerSnapshotQueryResult> {
+    command_result(
+        "query_saved_server_snapshots",
+        query_saved_server_snapshots_impl(&state.pool, params).await,
     )
 }
 
@@ -562,6 +574,19 @@ async fn resolve_server_id_for_address_with_client(
                 normalized_address
             ))
         })
+}
+
+async fn query_saved_server_snapshots_impl(
+    pool: &SqlitePool,
+    params: SavedServerSnapshotQueryParams,
+) -> AppResult<SavedServerSnapshotQueryResult> {
+    let settings = settings_store::get_settings(pool).await?;
+    crate::a2s_query::query_saved_server_snapshots(
+        params,
+        Duration::from_millis(settings.query_timeout_ms),
+        crate::a2s_query::DEFAULT_BATCH_CONCURRENCY,
+    )
+    .await
 }
 
 async fn connect_to_server_impl(
