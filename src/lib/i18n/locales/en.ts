@@ -120,6 +120,15 @@ export const en = {
       searchHistoryDeleteFailed: "Could not delete the search history record.",
     },
   },
+  pagination: {
+    aria: {
+      navigation: "Table pagination",
+      first: "First page",
+      last: "Last page",
+      page: (page: number) => `Go to page ${page}`,
+      current: (page: number) => `Current page, page ${page}`,
+    },
+  },
   tableSorting: {
     aria: {
       sortColumn: (column: string, direction: "none" | "asc" | "desc") => {

@@ -8,8 +8,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  ChevronLeft,
-  ChevronRight,
   Edit,
   ExternalLink,
   Folder,
@@ -25,6 +23,7 @@ import {
 import { FavoriteEditorDialog } from "@/components/favorite-editor-dialog";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1806,93 +1805,39 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                 </div>
               )}
               {currentFavorites.length > 0 ? (
-                <div className="flex min-h-11 items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                  <span className="truncate">
-                    {messages.serverList.footerStatus(
-                      favoritePage,
-                      favoriteTotalPages,
-                      refreshingDetails,
-                    )}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={String(favoritePageSize)}
-                      disabled={refreshingDetails}
-                      onValueChange={(value) => {
-                        const nextPageSize = Number(value);
-                        setFavoritePageSize(nextPageSize);
-                        setFavoritePage(1);
-                        if (favoriteQueryResult) {
-                          void refreshCurrentGroupDetails(1, nextPageSize);
-                        } else {
-                          setFavoriteQueryResult(null);
-                        }
-                      }}
-                    >
-                      <SelectTrigger
-                        aria-label={messages.filterToolbar.aria.rows}
-                        className="h-8 min-w-20 rounded-lg"
-                        size="default"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent
-                        align="end"
-                        className="w-max min-w-(--radix-select-trigger-width)"
-                        position="popper"
-                      >
-                        <SelectGroup>
-                          {favoritePageSizeChoices.map((option) => (
-                            <SelectItem key={option} value={String(option)}>
-                              {messages.filterToolbar.rowsLabel(option)}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={refreshingDetails || favoritePage <= 1}
-                      onClick={() => {
-                        const nextPage = Math.max(1, favoritePage - 1);
-                        setFavoritePage(nextPage);
-                        if (favoriteQueryResult) {
-                          void refreshCurrentGroupDetails(nextPage);
-                        } else {
-                          setFavoriteQueryResult(null);
-                        }
-                      }}
-                    >
-                      <ChevronLeft data-icon="inline-start" />
-                      {messages.common.previous}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        refreshingDetails || favoritePage >= favoriteTotalPages
+                <TablePagination
+                  page={favoritePage}
+                  totalPages={favoriteTotalPages}
+                  disabled={refreshingDetails}
+                  status={messages.serverList.footerStatus(
+                    favoritePage,
+                    favoriteTotalPages,
+                    refreshingDetails,
+                  )}
+                  onPageChange={(nextPage) => {
+                    setFavoritePage(nextPage);
+                    if (favoriteQueryResult) {
+                      void refreshCurrentGroupDetails(nextPage);
+                    } else {
+                      setFavoriteQueryResult(null);
+                    }
+                  }}
+                  pageSizeControl={{
+                    value: favoritePageSize,
+                    options: favoritePageSizeChoices,
+                    ariaLabel: messages.filterToolbar.aria.rows,
+                    formatLabel: messages.filterToolbar.rowsLabel,
+                    onChange: (nextPageSize) => {
+                      setFavoritePageSize(nextPageSize);
+                      setFavoritePage(1);
+                      if (favoriteQueryResult) {
+                        void refreshCurrentGroupDetails(1, nextPageSize);
+                      } else {
+                        setFavoriteQueryResult(null);
                       }
-                      onClick={() => {
-                        const nextPage = Math.min(
-                          favoriteTotalPages,
-                          favoritePage + 1,
-                        );
-                        setFavoritePage(nextPage);
-                        if (favoriteQueryResult) {
-                          void refreshCurrentGroupDetails(nextPage);
-                        } else {
-                          setFavoriteQueryResult(null);
-                        }
-                      }}
-                    >
-                      {messages.common.next}
-                      <ChevronRight data-icon="inline-end" />
-                    </Button>
-                  </div>
-                </div>
+                    },
+                  }}
+                />
               ) : null}
             </div>
           </>

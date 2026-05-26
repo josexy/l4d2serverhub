@@ -122,6 +122,15 @@ export const zhCn: Messages = {
       searchHistoryDeleteFailed: "无法删除搜索历史记录。",
     },
   },
+  pagination: {
+    aria: {
+      navigation: "表格分页",
+      first: "第一页",
+      last: "最后一页",
+      page: (page: number) => `跳到第 ${page} 页`,
+      current: (page: number) => `当前页，第 ${page} 页`,
+    },
+  },
   tableSorting: {
     aria: {
       sortColumn: (column: string, direction: "none" | "asc" | "desc") => {

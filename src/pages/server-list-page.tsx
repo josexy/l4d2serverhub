@@ -8,13 +8,12 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { FilterToolbar } from "@/components/filter-toolbar";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { ServerTable } from "@/components/server-table";
+import { TablePagination } from "@/components/table-pagination";
 import { useAppPreferences, useI18n } from "@/lib/app-preferences";
-import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { api, formatCommandError } from "@/lib/api";
 import { createDefaultFilters } from "@/lib/filters";
@@ -637,33 +636,13 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
           />
         </div>
 
-        <div className="flex min-h-11 items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-          <span className="truncate">
-            {messages.serverList.footerStatus(page, totalPages, isRefreshing)}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isRefreshing || page <= 1}
-              onClick={() => goToPage(page - 1)}
-            >
-              <ChevronLeft data-icon="inline-start" />
-              {messages.common.previous}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isRefreshing || page >= totalPages}
-              onClick={() => goToPage(page + 1)}
-            >
-              {messages.common.next}
-              <ChevronRight data-icon="inline-end" />
-            </Button>
-          </div>
-        </div>
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          disabled={isRefreshing}
+          status={messages.serverList.footerStatus(page, totalPages, isRefreshing)}
+          onPageChange={goToPage}
+        />
       </div>
 
       <ServerDetailPanel

@@ -7,8 +7,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   History,
   RefreshCw,
@@ -18,6 +16,7 @@ import {
 
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,14 +28,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   TableBody,
   TableCell,
@@ -1534,88 +1525,39 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
           </div>
         )}
         {rows.length > 0 ? (
-          <div className="flex min-h-11 items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-            <span className="truncate">
-              {messages.serverList.footerStatus(
-                historyPage,
-                historyTotalPages,
-                refreshingDetails,
-              )}
-            </span>
-            <div className="flex items-center gap-2">
-              <Select
-                value={String(historyPageSize)}
-                disabled={refreshingDetails}
-                onValueChange={(value) => {
-                  const nextPageSize = Number(value);
-                  setHistoryPageSize(nextPageSize);
-                  setHistoryPage(1);
-                  if (historyQueryResult) {
-                    void refreshHistoryDetails(rows, 1, nextPageSize);
-                  } else {
-                    setHistoryQueryResult(null);
-                  }
-                }}
-              >
-                <SelectTrigger
-                  aria-label={messages.filterToolbar.aria.rows}
-                  className="h-8 min-w-20 rounded-lg"
-                  size="default"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent
-                  align="end"
-                  className="w-max min-w-(--radix-select-trigger-width)"
-                  position="popper"
-                >
-                  <SelectGroup>
-                    {historyPageSizeChoices.map((option) => (
-                      <SelectItem key={option} value={String(option)}>
-                        {messages.filterToolbar.rowsLabel(option)}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={refreshingDetails || historyPage <= 1}
-                onClick={() => {
-                  const nextPage = Math.max(1, historyPage - 1);
-                  setHistoryPage(nextPage);
-                  if (historyQueryResult) {
-                    void refreshHistoryDetails(rows, nextPage);
-                  } else {
-                    setHistoryQueryResult(null);
-                  }
-                }}
-              >
-                <ChevronLeft data-icon="inline-start" />
-                {messages.common.previous}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={refreshingDetails || historyPage >= historyTotalPages}
-                onClick={() => {
-                  const nextPage = Math.min(historyTotalPages, historyPage + 1);
-                  setHistoryPage(nextPage);
-                  if (historyQueryResult) {
-                    void refreshHistoryDetails(rows, nextPage);
-                  } else {
-                    setHistoryQueryResult(null);
-                  }
-                }}
-              >
-                {messages.common.next}
-                <ChevronRight data-icon="inline-end" />
-              </Button>
-            </div>
-          </div>
+          <TablePagination
+            page={historyPage}
+            totalPages={historyTotalPages}
+            disabled={refreshingDetails}
+            status={messages.serverList.footerStatus(
+              historyPage,
+              historyTotalPages,
+              refreshingDetails,
+            )}
+            onPageChange={(nextPage) => {
+              setHistoryPage(nextPage);
+              if (historyQueryResult) {
+                void refreshHistoryDetails(rows, nextPage);
+              } else {
+                setHistoryQueryResult(null);
+              }
+            }}
+            pageSizeControl={{
+              value: historyPageSize,
+              options: historyPageSizeChoices,
+              ariaLabel: messages.filterToolbar.aria.rows,
+              formatLabel: messages.filterToolbar.rowsLabel,
+              onChange: (nextPageSize) => {
+                setHistoryPageSize(nextPageSize);
+                setHistoryPage(1);
+                if (historyQueryResult) {
+                  void refreshHistoryDetails(rows, 1, nextPageSize);
+                } else {
+                  setHistoryQueryResult(null);
+                }
+              },
+            }}
+          />
         ) : null}
       </div>
 
