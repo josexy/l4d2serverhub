@@ -394,6 +394,186 @@ async fn group_delete_rejects_default_and_cascades_group_favorites() {
 }
 
 #[tokio::test]
+async fn favorites_can_be_moved_to_another_group_atomically() {
+    let pool = l4d2_server_hub_lib::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    let source_group =
+        l4d2_server_hub_lib::favorites_store::create_group(&pool, "Source".to_string())
+            .await
+            .unwrap();
+    let target_group =
+        l4d2_server_hub_lib::favorites_store::create_group(&pool, "Target".to_string())
+            .await
+            .unwrap();
+
+    let favorite_a = l4d2_server_hub_lib::favorites_store::add_favorite(
+        &pool,
+        l4d2_server_hub_lib::models::FavoriteInput {
+            address: "127.0.0.1:27015".to_string(),
+            server_id: None,
+            group_id: source_group.id.clone(),
+            custom_name: None,
+            notes: String::new(),
+            tags: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let favorite_b = l4d2_server_hub_lib::favorites_store::add_favorite(
+        &pool,
+        l4d2_server_hub_lib::models::FavoriteInput {
+            address: "127.0.0.1:27016".to_string(),
+            server_id: None,
+            group_id: source_group.id.clone(),
+            custom_name: None,
+            notes: String::new(),
+            tags: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let untouched = l4d2_server_hub_lib::favorites_store::add_favorite(
+        &pool,
+        l4d2_server_hub_lib::models::FavoriteInput {
+            address: "127.0.0.1:27017".to_string(),
+            server_id: None,
+            group_id: source_group.id.clone(),
+            custom_name: None,
+            notes: String::new(),
+            tags: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let moved = l4d2_server_hub_lib::favorites_store::move_favorites_to_group(
+        &pool,
+        vec![
+            favorite_a.id.clone(),
+            favorite_b.id.clone(),
+            favorite_a.id.clone(),
+        ],
+        target_group.id.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(moved.len(), 2);
+    assert!(moved
+        .iter()
+        .all(|favorite| favorite.group_id == target_group.id));
+
+    let favorites = l4d2_server_hub_lib::favorites_store::list_favorites(&pool)
+        .await
+        .unwrap();
+    let moved_a = favorites
+        .iter()
+        .find(|favorite| favorite.id == favorite_a.id)
+        .unwrap();
+    let moved_b = favorites
+        .iter()
+        .find(|favorite| favorite.id == favorite_b.id)
+        .unwrap();
+    let remaining = favorites
+        .iter()
+        .find(|favorite| favorite.id == untouched.id)
+        .unwrap();
+
+    assert_eq!(moved_a.group_id, target_group.id);
+    assert_eq!(moved_b.group_id, target_group.id);
+    assert_eq!(remaining.group_id, source_group.id);
+}
+
+#[tokio::test]
+async fn favorite_move_rejects_missing_group_without_changes() {
+    let pool = l4d2_server_hub_lib::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    let favorite = l4d2_server_hub_lib::favorites_store::add_favorite(
+        &pool,
+        l4d2_server_hub_lib::models::FavoriteInput {
+            address: "127.0.0.1:27015".to_string(),
+            server_id: None,
+            group_id: "default".to_string(),
+            custom_name: None,
+            notes: String::new(),
+            tags: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = l4d2_server_hub_lib::favorites_store::move_favorites_to_group(
+        &pool,
+        vec![favorite.id.clone()],
+        "missing-group".to_string(),
+    )
+    .await;
+    assert!(result.is_err());
+
+    let favorites = l4d2_server_hub_lib::favorites_store::list_favorites(&pool)
+        .await
+        .unwrap();
+    assert_eq!(favorites[0].group_id, "default");
+}
+
+#[tokio::test]
+async fn favorite_move_rejects_missing_favorite_without_partial_changes() {
+    let pool = l4d2_server_hub_lib::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+    let target_group =
+        l4d2_server_hub_lib::favorites_store::create_group(&pool, "Target".to_string())
+            .await
+            .unwrap();
+    let favorite = l4d2_server_hub_lib::favorites_store::add_favorite(
+        &pool,
+        l4d2_server_hub_lib::models::FavoriteInput {
+            address: "127.0.0.1:27015".to_string(),
+            server_id: None,
+            group_id: "default".to_string(),
+            custom_name: None,
+            notes: String::new(),
+            tags: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = l4d2_server_hub_lib::favorites_store::move_favorites_to_group(
+        &pool,
+        vec![favorite.id.clone(), "missing-favorite".to_string()],
+        target_group.id,
+    )
+    .await;
+    assert!(result.is_err());
+
+    let favorites = l4d2_server_hub_lib::favorites_store::list_favorites(&pool)
+        .await
+        .unwrap();
+    assert_eq!(favorites[0].group_id, "default");
+}
+
+#[tokio::test]
+async fn favorite_move_rejects_empty_selection() {
+    let pool = l4d2_server_hub_lib::create_pool("sqlite::memory:")
+        .await
+        .unwrap();
+
+    let result = l4d2_server_hub_lib::favorites_store::move_favorites_to_group(
+        &pool,
+        Vec::new(),
+        "default".to_string(),
+    )
+    .await;
+
+    assert!(matches!(
+        result,
+        Err(l4d2_server_hub_lib::errors::AppError::Unexpected(_))
+    ));
+}
+
+#[tokio::test]
 async fn favorite_snapshot_update_persists_snapshot_and_server_id() {
     let pool = l4d2_server_hub_lib::create_pool("sqlite::memory:")
         .await

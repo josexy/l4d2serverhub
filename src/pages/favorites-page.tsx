@@ -345,6 +345,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [deleteFavorite, setDeleteFavorite] = useState<Favorite | null>(null);
   const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
+  const [moveSelectionOpen, setMoveSelectionOpen] = useState(false);
+  const [moveTargetGroupId, setMoveTargetGroupId] = useState("");
+  const [movingFavoriteIds, setMovingFavoriteIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [deleteGroup, setDeleteGroup] = useState<FavoriteGroup | null>(null);
   const [deletingFavoriteIds, setDeletingFavoriteIds] = useState<Set<string>>(
     () => new Set(),
@@ -389,6 +394,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     useState<FavoriteResizableColumnId | null>(null);
   const savingFavoriteRef = useRef(false);
   const creatingGroupRef = useRef(false);
+  const movingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const deletingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const deletingGroupIdRef = useRef<string | null>(null);
   const pendingConnectAddressRef = useRef<string | null>(null);
@@ -544,6 +550,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       ),
     [favoritePageSize],
   );
+  const moveTargetGroups = useMemo(
+    () => visibleGroups.filter((group) => group.id !== selectedGroup.id),
+    [selectedGroup.id, visibleGroups],
+  );
   const tableMinWidth = useMemo(
     () =>
       SELECT_COLUMN_WIDTH +
@@ -603,6 +613,15 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     setFavoritePage(1);
     setFavoriteQueryResult(null);
   }, [selectedGroup.id]);
+
+  useEffect(() => {
+    setMoveTargetGroupId((current) => {
+      if (moveTargetGroups.some((group) => group.id === current)) {
+        return current;
+      }
+      return moveTargetGroups[0]?.id ?? "";
+    });
+  }, [moveTargetGroups]);
 
   useEffect(() => {
     setFavoritePage((current) => Math.min(current, favoriteTotalPages));
@@ -865,6 +884,52 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       currentFavoriteIds.has(id),
     );
     await deleteFavoriteIds(ids);
+  };
+
+  const handleMoveSelection = async () => {
+    const ids = [...selectedFavoriteIds].filter((id) =>
+      currentFavoriteIds.has(id),
+    );
+    const targetGroupId = moveTargetGroupId || moveTargetGroups[0]?.id || "";
+
+    if (
+      ids.length === 0 ||
+      !targetGroupId ||
+      ids.some((id) => movingFavoriteIdsRef.current.has(id))
+    ) {
+      return;
+    }
+
+    movingFavoriteIdsRef.current = new Set([
+      ...movingFavoriteIdsRef.current,
+      ...ids,
+    ]);
+    setMovingFavoriteIds(new Set(movingFavoriteIdsRef.current));
+
+    try {
+      const movedFavorites = await api.moveFavoritesToGroup(ids, targetGroupId);
+      const movedById = new Map(
+        movedFavorites.map((favorite) => [favorite.id, favorite]),
+      );
+      setFavorites((current) =>
+        current.map((favorite) => movedById.get(favorite.id) ?? favorite),
+      );
+      setFavoriteQueryResult(null);
+      setSelectedFavoriteIds(new Set());
+      setMoveSelectionOpen(false);
+      toast.success(messages.favorites.toasts.movedMany(movedFavorites.length));
+    } catch (moveError) {
+      const message = formatCommandError(
+        moveError,
+        messages.favorites.toasts.moveFailed,
+      );
+      toast.error(message);
+    } finally {
+      for (const id of ids) {
+        movingFavoriteIdsRef.current.delete(id);
+      }
+      setMovingFavoriteIds(new Set(movingFavoriteIdsRef.current));
+    }
   };
 
   const handleDeleteGroup = async () => {
@@ -1230,6 +1295,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const selectedGroupFavoriteCount = currentFavorites.length;
   const deleteGroupFavoriteCount =
     deleteGroup ? (favoritesByGroup.get(deleteGroup.id) ?? []).length : 0;
+  const movingSelection = movingFavoriteIds.size > 0;
   const detailFavoritePending =
     selectedDetailFavoriteId !== null &&
     (deletingFavoriteIds.has(selectedDetailFavoriteId) ||
@@ -1407,8 +1473,18 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       <Button
                         type="button"
                         size="sm"
+                        variant="outline"
+                        disabled={movingSelection}
+                        onClick={() => setMoveSelectionOpen(true)}
+                      >
+                        <FolderOpen data-icon="inline-start" />
+                        {messages.favorites.actions.moveToGroup}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
                         variant="destructive"
-                        disabled={deletingFavoriteIds.size > 0}
+                        disabled={deletingFavoriteIds.size > 0 || movingSelection}
                         onClick={() => setDeleteSelectionOpen(true)}
                       >
                         <Trash2 data-icon="inline-start" />
@@ -1952,6 +2028,74 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
               {deletingFavoriteIds.size > 0
                 ? messages.common.deleting
                 : messages.favorites.actions.deleteSelected}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isActive && moveSelectionOpen}
+        onOpenChange={(open) => !open && setMoveSelectionOpen(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{messages.favorites.moveDialogTitle}</DialogTitle>
+            <DialogDescription>
+              {messages.favorites.moveDialogDescription(selectedCurrentCount)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              {messages.favorites.moveDialogGroupLabel}
+              <Select
+                value={moveTargetGroupId}
+                disabled={movingSelection || moveTargetGroups.length === 0}
+                onValueChange={setMoveTargetGroupId}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue
+                    placeholder={messages.favoriteEditor.placeholders.group}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {moveTargetGroups.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        {displayGroupName(group)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </label>
+            {moveTargetGroups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {messages.favorites.moveDialogNoTargets}
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={movingSelection}
+              onClick={() => setMoveSelectionOpen(false)}
+            >
+              {messages.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                movingSelection ||
+                selectedCurrentCount === 0 ||
+                moveTargetGroups.length === 0 ||
+                !moveTargetGroupId
+              }
+              onClick={() => void handleMoveSelection()}
+            >
+              {movingSelection
+                ? messages.common.saving
+                : messages.favorites.actions.moveToGroup}
             </Button>
           </DialogFooter>
         </DialogContent>

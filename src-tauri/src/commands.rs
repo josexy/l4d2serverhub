@@ -123,6 +123,18 @@ pub async fn update_favorite_snapshot(
 }
 
 #[tauri::command]
+pub async fn move_favorites_to_group(
+    state: State<'_, SharedState>,
+    ids: Vec<String>,
+    group_id: String,
+) -> CommandResult<Vec<Favorite>> {
+    command_result(
+        "move_favorites_to_group",
+        move_favorites_to_group_impl(&state.pool, ids, group_id).await,
+    )
+}
+
+#[tauri::command]
 pub async fn delete_favorite(state: State<'_, SharedState>, id: String) -> CommandResult<()> {
     command_result(
         "delete_favorite",
@@ -467,10 +479,7 @@ async fn upstream_config_for_request(
 }
 
 fn should_refresh_upstream_config_after_error<T>(result: &AppResult<T>) -> bool {
-    match result {
-        Err(AppError::StaleUpstreamNonce(_)) => true,
-        _ => false,
-    }
+    matches!(result, Err(AppError::StaleUpstreamNonce(_)))
 }
 
 async fn get_server_details_with_client(
@@ -574,6 +583,14 @@ async fn update_favorite_snapshot_impl(
     snapshot: &ServerSnapshot,
 ) -> AppResult<Favorite> {
     favorites_store::update_favorite_snapshot(pool, id, snapshot).await
+}
+
+async fn move_favorites_to_group_impl(
+    pool: &SqlitePool,
+    ids: Vec<String>,
+    group_id: String,
+) -> AppResult<Vec<Favorite>> {
+    favorites_store::move_favorites_to_group(pool, ids, group_id).await
 }
 
 async fn delete_favorite_impl(pool: &SqlitePool, id: String) -> AppResult<()> {
@@ -1128,6 +1145,17 @@ mod tests {
                 .map(|snapshot| snapshot.address.as_str()),
             Some("103.28.54.212:27035")
         );
+
+        let group = favorites_store::create_group(&pool, "Moved".to_string())
+            .await
+            .unwrap();
+        let moved =
+            move_favorites_to_group_impl(&pool, vec![favorite.id.clone()], group.id.clone())
+                .await
+                .unwrap();
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].id, favorite.id);
+        assert_eq!(moved[0].group_id, group.id);
 
         delete_favorite_impl(&pool, favorite.id).await.unwrap();
         let favorites = list_favorites_impl(&pool).await.unwrap();

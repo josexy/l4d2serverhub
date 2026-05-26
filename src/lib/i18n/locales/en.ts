@@ -188,6 +188,11 @@ export const en = {
     deleteSelectedDialogTitle: "Delete selected favorites",
     deleteSelectedDialogDescription: (count: number) =>
       `Remove ${count} selected favorites?`,
+    moveDialogTitle: "Move selected favorites",
+    moveDialogDescription: (count: number) =>
+      `Move ${count} selected favorites to another group.`,
+    moveDialogGroupLabel: "Target group",
+    moveDialogNoTargets: "Create another group before moving favorites.",
     deleteGroupDialogTitle: "Delete group",
     deleteGroupDialogFallback: "This group cannot be deleted.",
     deleteGroupDialogDescription: (name: string, count: number) =>
@@ -214,6 +219,8 @@ export const en = {
       deleted: "Favorite deleted.",
       deletedMany: (count: number) => `${count} favorites deleted.`,
       deleteFailed: "Could not delete the favorite.",
+      movedMany: (count: number) => `${count} favorites moved.`,
+      moveFailed: "Could not move the selected favorites.",
       groupDeleted: "Group deleted.",
       groupDeleteFailed: "Could not delete the group.",
       connectStarted: (address: string) => `Launching ${address}`,
@@ -226,6 +233,7 @@ export const en = {
       hideGroups: "Hide groups",
       selectAll: "Select all favorites in this group",
       select: (name: string) => `Select ${name}`,
+      moveToGroup: "Move to group",
       deleteSelected: "Delete selected",
       deleteCurrentGroup: "Delete group",
       deleteGroup: (name: string) => `Delete group ${name}`,

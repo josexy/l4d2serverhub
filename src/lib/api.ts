@@ -55,6 +55,8 @@ export const api = {
     invoke<Favorite>("update_favorite", { id, input }),
   updateFavoriteSnapshot: (id: string, snapshot: ServerSnapshot) =>
     invoke<Favorite>("update_favorite_snapshot", { id, snapshot }),
+  moveFavoritesToGroup: (ids: string[], groupId: string) =>
+    invoke<Favorite[]>("move_favorites_to_group", { ids, groupId }),
   deleteFavorite: (id: string) => invoke<void>("delete_favorite", { id }),
   listGroups: () => invoke<FavoriteGroup[]>("list_groups"),
   createGroup: (name: string) => invoke<FavoriteGroup>("create_group", { name }),

@@ -332,6 +332,7 @@ pub fn run() {
             commands::add_favorite,
             commands::update_favorite,
             commands::update_favorite_snapshot,
+            commands::move_favorites_to_group,
             commands::delete_favorite,
             commands::list_groups,
             commands::create_group,

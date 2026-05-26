@@ -190,6 +190,11 @@ export const zhCn: Messages = {
     deleteSelectedDialogTitle: "删除所选收藏",
     deleteSelectedDialogDescription: (count: number) =>
       `确定要删除已选择的 ${count} 条收藏吗？`,
+    moveDialogTitle: "移动所选收藏",
+    moveDialogDescription: (count: number) =>
+      `将已选择的 ${count} 条收藏移动到其他分组。`,
+    moveDialogGroupLabel: "目标分组",
+    moveDialogNoTargets: "请先创建其他分组，再移动收藏。",
     deleteGroupDialogTitle: "删除分组",
     deleteGroupDialogFallback: "该分组不能删除。",
     deleteGroupDialogDescription: (name: string, count: number) =>
@@ -215,6 +220,8 @@ export const zhCn: Messages = {
       deleted: "收藏已删除。",
       deletedMany: (count: number) => `已删除 ${count} 条收藏。`,
       deleteFailed: "无法删除收藏。",
+      movedMany: (count: number) => `已移动 ${count} 条收藏。`,
+      moveFailed: "无法移动所选收藏。",
       groupDeleted: "分组已删除。",
       groupDeleteFailed: "无法删除分组。",
       connectStarted: (address: string) => `正在启动连接：${address}`,
@@ -227,6 +234,7 @@ export const zhCn: Messages = {
       hideGroups: "隐藏分组",
       selectAll: "选择该分组中的全部收藏",
       select: (name: string) => `选择 ${name}`,
+      moveToGroup: "移动到分组",
       deleteSelected: "删除所选",
       deleteCurrentGroup: "删除分组",
       deleteGroup: (name: string) => `删除分组 ${name}`,

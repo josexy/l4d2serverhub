@@ -227,6 +227,62 @@ pub async fn update_favorite_snapshot(
     get_favorite(pool, &id).await
 }
 
+pub async fn move_favorites_to_group(
+    pool: &SqlitePool,
+    ids: Vec<String>,
+    group_id: String,
+) -> AppResult<Vec<Favorite>> {
+    let mut unique_ids = Vec::new();
+    for id in ids {
+        if !unique_ids.contains(&id) {
+            unique_ids.push(id);
+        }
+    }
+
+    if unique_ids.is_empty() {
+        return Err(AppError::Unexpected(
+            "at least one favorite must be selected".to_string(),
+        ));
+    }
+
+    ensure_group_exists(pool, &group_id).await?;
+
+    let mut tx = pool.begin().await.map_err(database_error)?;
+    let now = format_time(Utc::now());
+    let mut moved_count = 0;
+
+    for id in &unique_ids {
+        let result = sqlx::query(
+            "UPDATE favorites
+             SET group_id = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(&group_id)
+        .bind(&now)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        moved_count += result.rows_affected();
+    }
+
+    if moved_count != unique_ids.len() as u64 {
+        return Err(AppError::Unexpected(
+            "one or more selected favorites were not found".to_string(),
+        ));
+    }
+
+    tx.commit().await.map_err(database_error)?;
+
+    log::info!(
+        "moved {} favorites to favorite group '{}'",
+        unique_ids.len(),
+        group_id
+    );
+
+    favorites_by_ids(pool, &unique_ids).await
+}
+
 pub async fn delete_favorite(pool: &SqlitePool, id: String) -> AppResult<()> {
     sqlx::query("DELETE FROM favorites WHERE id = ?")
         .bind(&id)
@@ -270,6 +326,14 @@ async fn get_favorite(pool: &SqlitePool, id: &str) -> AppResult<Favorite> {
     row.map(favorite_from_row)
         .transpose()?
         .ok_or_else(|| AppError::Unexpected(format!("favorite '{}' was not found", id)))
+}
+
+async fn favorites_by_ids(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<Favorite>> {
+    let mut favorites = Vec::with_capacity(ids.len());
+    for id in ids {
+        favorites.push(get_favorite(pool, id).await?);
+    }
+    Ok(favorites)
 }
 
 async fn ensure_group_exists(pool: &SqlitePool, group_id: &str) -> AppResult<()> {
