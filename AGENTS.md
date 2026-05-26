@@ -16,6 +16,7 @@ Core stack:
 Core behavior:
 
 - Query public L4D2 servers through the upstream API code in `src-tauri/src/upstream_api.rs`.
+- Query individual server details and saved favorite/history snapshots through A2S UDP code in `src-tauri/src/a2s_query.rs` when the setting is enabled.
 - Filter, sort, inspect, favorite, group, annotate, import/export, and launch servers.
 - Launch Steam/L4D2 only through validated `host:port` server addresses.
 - Keep frontend Tauri command calls centralized behind `src/lib/api.ts`.
@@ -28,7 +29,7 @@ Core behavior:
 - `src/components/` - App-specific React components.
 - `src/components/ui/` - shadcn-style reusable UI primitives owned in-repo.
 - `src/lib/` - Frontend API wrappers, shared types, filters, preferences, i18n, utilities.
-- `src-tauri/src/` - Rust backend modules, Tauri commands, stores, models, errors, launcher, upstream API.
+- `src-tauri/src/` - Rust backend modules, Tauri commands, stores, models, errors, launcher, A2S query code, upstream API.
 - `src-tauri/tests/` - Rust integration tests.
 - `src-tauri/tauri.conf.json` - Tauri app configuration.
 - `components.json` - shadcn project configuration.
@@ -74,6 +75,10 @@ For UI, command wiring, or desktop integration changes, also smoke test with `np
 - Keep Tauri command handlers in `src-tauri/src/commands.rs` thin; put reusable behavior in backend modules.
 - Use typed models from `src-tauri/src/models.rs` and typed errors from `src-tauri/src/errors.rs`.
 - Validate all externally supplied addresses before using them for networking, persistence, or Steam launch.
+- Public server list search, filtering, sorting, and pagination still belong to `src-tauri/src/upstream_api.rs`; A2S is only for known `host:port` addresses.
+- Keep A2S query behavior in `src-tauri/src/a2s_query.rs`. Details may use `A2S_INFO` plus `A2S_PLAYER`; saved favorite/history refresh should use `A2S_INFO` only.
+- A2S UDP does not use HTTP proxy settings. Use `queryTimeoutMs` for UDP timeouts and return per-address errors for batch refresh instead of failing or deleting the whole saved list.
+- When changing the A2S worker, preserve challenge retry, uncompressed split-packet assembly, per-address timeout handling, and deterministic non-live tests.
 - Keep `ServerSnapshot` validation semantics intact. Deserialization must continue to reject inconsistent `address`, `ip`, and `port` data.
 - When changing persistence, update schema initialization in `src-tauri/src/lib.rs` and add or adjust store tests.
 - When changing import/export, validate the complete payload before replacing existing data.
@@ -115,10 +120,12 @@ For UI, command wiring, or desktop integration changes, also smoke test with `np
 - Cross-boundary changes should pass both `npm run build` and `cargo test --manifest-path src-tauri/Cargo.toml`.
 - Persistence changes should include in-memory or temporary-file SQLite coverage.
 - Launcher and address parsing changes should cover invalid input as well as valid `host:port` cases.
+- A2S protocol changes should cover parser behavior, challenge handling, split packets, timeout/error snapshots, and worker socket reuse without depending on live public servers.
 
 ## Security And Safety Notes
 
 - Treat server addresses, import files, persisted records, proxy settings, and upstream data as untrusted input.
+- Treat A2S UDP responses as untrusted input; parse defensively and return clear errors for malformed packets.
 - Do not build shell commands from raw user or server input.
 - Steam launch URLs must be created only from validated addresses.
 - Do not add kicking, banning, RCON, or remote server administration features unless explicitly requested.
