@@ -11,6 +11,7 @@ pub mod settings_store;
 pub mod steam_launcher;
 pub mod system_tray;
 pub mod upstream_api;
+pub mod upstream_config_store;
 
 use chrono::Utc;
 use logging::LogState;
@@ -23,20 +24,43 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tauri::{Listener, LogicalSize, Manager};
 use tauri_plugin_log::{Target, TargetKind};
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, RwLock};
 use upstream_api::{UpstreamApiConfig, UpstreamClientCache};
 
 pub struct AppState {
     pub pool: SqlitePool,
-    pub upstream_config: Arc<OnceCell<UpstreamApiConfig>>,
+    pub upstream_config: Arc<UpstreamConfigState>,
     pub upstream_client_cache: UpstreamClientCache,
     pub log_state: Arc<LogState>,
 }
 
 pub type SharedState = Arc<AppState>;
+
+pub struct UpstreamConfigState {
+    current: RwLock<UpstreamApiConfig>,
+    refresh_lock: Mutex<()>,
+}
+
+impl UpstreamConfigState {
+    pub fn new(config: UpstreamApiConfig) -> Self {
+        Self {
+            current: RwLock::new(config),
+            refresh_lock: Mutex::new(()),
+        }
+    }
+
+    pub async fn current(&self) -> UpstreamApiConfig {
+        self.current.read().await.clone()
+    }
+
+    async fn replace(&self, config: UpstreamApiConfig) {
+        *self.current.write().await = config;
+    }
+}
 
 const WINDOW_MAX_WORK_AREA_RATIO: f64 = 0.9;
 const STARTUP_WIDTH_WORK_AREA_RATIO: f64 = 0.72;
@@ -136,6 +160,11 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             key TEXT PRIMARY KEY NOT NULL,
             value_json TEXT NOT NULL
         )",
+        "CREATE TABLE IF NOT EXISTS app_cache (
+            key TEXT PRIMARY KEY NOT NULL,
+            value_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
     ];
 
     for statement in schema_statements {
@@ -182,15 +211,27 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            let setup_started_at = Instant::now();
+            let mut last_timing_at = setup_started_at;
             let app_data_dir = app.path().app_data_dir().map_err(|err| {
                 io::Error::other(format!("failed to resolve app data directory: {err}"))
             })?;
+            report_startup_timing(
+                "resolved app data directory",
+                setup_started_at,
+                &mut last_timing_at,
+            );
             std::fs::create_dir_all(&app_data_dir).map_err(|err| {
                 io::Error::other(format!(
                     "failed to create app data directory '{}': {err}",
                     app_data_dir.display()
                 ))
             })?;
+            report_startup_timing(
+                "ensured app data directory",
+                setup_started_at,
+                &mut last_timing_at,
+            );
             let database_path = app_data_dir.join(DATABASE_FILE_NAME);
             let pool = tauri::async_runtime::block_on(create_pool_at_path(&database_path))
                 .map_err(|err| {
@@ -199,6 +240,11 @@ pub fn run() {
                         database_path.display()
                     ))
                 })?;
+            report_startup_timing(
+                "opened and initialized database",
+                setup_started_at,
+                &mut last_timing_at,
+            );
             let startup_settings =
                 match tauri::async_runtime::block_on(settings_store::get_settings(&pool)) {
                     Ok(settings) => {
@@ -215,6 +261,11 @@ pub fn run() {
                         models::AppSettings::default()
                     }
                 };
+            report_startup_timing(
+                "loaded startup settings",
+                setup_started_at,
+                &mut last_timing_at,
+            );
             log::info!("starting L4D2 Server Hub");
             log::info!(
                 "using application database at '{}'",
@@ -229,7 +280,13 @@ pub fn run() {
             } else {
                 log::debug!("configured main window startup layout");
             }
+            report_startup_timing(
+                "configured startup window",
+                setup_started_at,
+                &mut last_timing_at,
+            );
             system_tray::setup_system_tray(app, &startup_settings)?;
+            report_startup_timing("created system tray", setup_started_at, &mut last_timing_at);
             system_tray::register_close_to_tray(&main_window);
             let startup_window = main_window.clone();
             app.listen("l4d2://frontend-ready", move |_| {
@@ -238,15 +295,19 @@ pub fn run() {
                 } else {
                     log::debug!("main window shown after frontend ready event");
                 }
+                report_startup_timing_elapsed(
+                    "frontend ready event received",
+                    setup_started_at.elapsed(),
+                );
             });
 
-            let upstream_config = Arc::new(OnceCell::new());
+            let upstream_config = Arc::new(UpstreamConfigState::new(
+                startup_upstream_config_from_cache(&pool).unwrap_or_default(),
+            ));
             let init_pool = pool.clone();
             let init_upstream_config = Arc::clone(&upstream_config);
             tauri::async_runtime::spawn(async move {
-                init_upstream_config
-                    .get_or_init(|| async { load_startup_upstream_config(&init_pool).await })
-                    .await;
+                refresh_startup_upstream_config(&init_pool, &init_upstream_config).await;
             });
 
             app.manage(Arc::new(AppState {
@@ -255,6 +316,11 @@ pub fn run() {
                 upstream_client_cache: UpstreamClientCache::default(),
                 log_state,
             }));
+            report_startup_timing(
+                "managed application state",
+                setup_started_at,
+                &mut last_timing_at,
+            );
 
             Ok(())
         })
@@ -425,7 +491,75 @@ fn clamp_window_dimension(preferred: f64, min: f64, max: f64) -> u32 {
     bounded.round().max(1.0) as u32
 }
 
-async fn load_startup_upstream_config(pool: &SqlitePool) -> UpstreamApiConfig {
+fn report_startup_timing(stage: &str, started_at: Instant, last_timing_at: &mut Instant) {
+    let now = Instant::now();
+    let step_elapsed = now.duration_since(*last_timing_at);
+    let total_elapsed = now.duration_since(started_at);
+    *last_timing_at = now;
+    report_startup_timing_step(stage, step_elapsed, total_elapsed);
+}
+
+fn report_startup_timing_elapsed(stage: &str, total_elapsed: Duration) {
+    let message = format!(
+        "startup timing: {stage}: total={}ms",
+        total_elapsed.as_millis()
+    );
+    log::info!("{message}");
+}
+
+fn report_startup_timing_step(stage: &str, step_elapsed: Duration, total_elapsed: Duration) {
+    let message = format!(
+        "startup timing: {stage}: step={}ms total={}ms",
+        step_elapsed.as_millis(),
+        total_elapsed.as_millis()
+    );
+    log::info!("{message}");
+}
+
+fn startup_upstream_config_from_cache(pool: &SqlitePool) -> Option<UpstreamApiConfig> {
+    match tauri::async_runtime::block_on(upstream_config_store::get_cached_nonce(pool)) {
+        Ok(Some(nonce)) => {
+            let config = UpstreamApiConfig {
+                nonce,
+                ..UpstreamApiConfig::default()
+            };
+            log::info!("using cached startup nonce while refreshing in background");
+            Some(config)
+        }
+        Ok(None) => {
+            log::info!("no cached startup nonce available; using bundled default while refreshing");
+            None
+        }
+        Err(err) => {
+            log::warn!("failed to read cached startup nonce: {err}");
+            None
+        }
+    }
+}
+
+pub async fn refresh_startup_upstream_config(
+    pool: &SqlitePool,
+    upstream_config: &UpstreamConfigState,
+) -> UpstreamApiConfig {
+    refresh_startup_upstream_config_if_stale(pool, upstream_config, None).await
+}
+
+pub async fn refresh_startup_upstream_config_if_stale(
+    pool: &SqlitePool,
+    upstream_config: &UpstreamConfigState,
+    stale_nonce: Option<&str>,
+) -> UpstreamApiConfig {
+    let _refresh_guard = upstream_config.refresh_lock.lock().await;
+    if let Some(stale_nonce) = stale_nonce {
+        let current = upstream_config.current().await;
+        if current.nonce != stale_nonce {
+            log::info!("upstream nonce was refreshed by another task; reusing latest config");
+            return current;
+        }
+    }
+
+    let started_at = Instant::now();
+    let mut last_timing_at = started_at;
     let settings = match settings_store::get_settings(pool).await {
         Ok(settings) => settings,
         Err(err) => {
@@ -433,14 +567,29 @@ async fn load_startup_upstream_config(pool: &SqlitePool) -> UpstreamApiConfig {
             models::AppSettings::default()
         }
     };
+    report_startup_timing(
+        "loaded settings for upstream startup config",
+        started_at,
+        &mut last_timing_at,
+    );
 
-    match upstream_api::HttpUpstreamServerClient::startup_config(
+    let startup_config_result = upstream_api::HttpUpstreamServerClient::startup_config(
         std::time::Duration::from_millis(settings.query_timeout_ms),
         &settings.http_proxy,
     )
-    .await
-    {
+    .await;
+    report_startup_timing(
+        "fetched upstream startup nonce",
+        started_at,
+        &mut last_timing_at,
+    );
+
+    match startup_config_result {
         Ok(config) => {
+            if let Err(err) = upstream_config_store::save_cached_nonce(pool, &config.nonce).await {
+                log::warn!("failed to persist startup nonce cache: {err}");
+            }
+            upstream_config.replace(config.clone()).await;
             log::info!(
                 "loaded startup nonce from public servers page: {}",
                 config.nonce
@@ -449,7 +598,7 @@ async fn load_startup_upstream_config(pool: &SqlitePool) -> UpstreamApiConfig {
         }
         Err(err) => {
             log::warn!("failed to load startup nonce, falling back to bundled default: {err}");
-            UpstreamApiConfig::default()
+            upstream_config.current().await
         }
     }
 }

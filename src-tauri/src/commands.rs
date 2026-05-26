@@ -6,12 +6,16 @@ use crate::models::{
 };
 use crate::upstream_api::{UpstreamApiConfig, UpstreamClientCache, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
-use crate::{steam_launcher, system_tray, SharedState};
+use crate::{steam_launcher, system_tray, SharedState, UpstreamConfigState};
 use sqlx::SqlitePool;
-use std::{cmp::Reverse, path::Path, sync::Arc, time::Duration};
+use std::{
+    cmp::Reverse,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
-use tokio::sync::OnceCell;
 
 fn command_result<T>(operation: &str, result: AppResult<T>) -> CommandResult<T> {
     result.map_err(|error| {
@@ -284,11 +288,13 @@ pub async fn clear_log_files(app: AppHandle) -> CommandResult<u32> {
 
 async fn query_servers_impl(
     pool: &SqlitePool,
-    upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
+    upstream_config: &Arc<UpstreamConfigState>,
     upstream_client_cache: &UpstreamClientCache,
     params: ServerQueryParams,
 ) -> AppResult<ServerQueryResult> {
+    let started_at = Instant::now();
     let settings = settings_store::get_settings(pool).await?;
+    log_command_timing("query_servers", "loaded settings", started_at.elapsed());
     log::debug!(
         "query_servers requested: page={}, page_size={}, query='{}', addresses={}",
         params.page,
@@ -296,16 +302,57 @@ async fn query_servers_impl(
         params.filters.query,
         params.addresses.as_ref().map_or(0, Vec::len)
     );
-    let upstream_config = upstream_config_for_request(pool, upstream_config).await;
+    let upstream_config_value = upstream_config_for_request(upstream_config).await;
+    log_command_timing(
+        "query_servers",
+        "loaded upstream config",
+        started_at.elapsed(),
+    );
     let client = upstream_client_cache
         .get_or_create(
             Duration::from_millis(settings.query_timeout_ms),
-            upstream_config,
+            upstream_config_value,
             &settings.http_proxy,
         )
         .await?;
+    log_command_timing(
+        "query_servers",
+        "prepared upstream client",
+        started_at.elapsed(),
+    );
 
-    query_servers_with_client(params, &client).await
+    let result = query_servers_with_client(params.clone(), &client).await;
+    if should_refresh_upstream_config_after_error(&result) {
+        log::info!("query_servers failed with a refreshable upstream error; refreshing nonce and retrying once");
+        let stale_nonce = client.config().nonce.clone();
+        let refreshed_config = crate::refresh_startup_upstream_config_if_stale(
+            pool,
+            upstream_config,
+            Some(&stale_nonce),
+        )
+        .await;
+        let refreshed_client = upstream_client_cache
+            .get_or_create(
+                Duration::from_millis(settings.query_timeout_ms),
+                refreshed_config,
+                &settings.http_proxy,
+            )
+            .await?;
+        let retry_result = query_servers_with_client(params, &refreshed_client).await;
+        log_command_timing(
+            "query_servers",
+            "completed upstream query after refresh retry",
+            started_at.elapsed(),
+        );
+        return retry_result;
+    }
+
+    log_command_timing(
+        "query_servers",
+        "completed upstream query",
+        started_at.elapsed(),
+    );
+    result
 }
 
 async fn query_servers_with_client(
@@ -358,35 +405,72 @@ fn sort_query_result_items(result: &mut ServerQueryResult, sort: &crate::models:
     }
 }
 
+fn log_command_timing(command: &str, stage: &str, elapsed: Duration) {
+    let message = format!(
+        "command timing: {command}: {stage}: elapsed={}ms",
+        elapsed.as_millis()
+    );
+    log::info!("{message}");
+}
+
 async fn get_server_details_impl(
     pool: &SqlitePool,
-    upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
+    upstream_config: &Arc<UpstreamConfigState>,
     upstream_client_cache: &UpstreamClientCache,
     address: &str,
     server_id: Option<&str>,
     fallback_name: Option<&str>,
 ) -> AppResult<ServerDetails> {
     let settings = settings_store::get_settings(pool).await?;
-    let upstream_config = upstream_config_for_request(pool, upstream_config).await;
+    let upstream_config_value = upstream_config_for_request(upstream_config).await;
     let client = upstream_client_cache
         .get_or_create(
             Duration::from_millis(settings.query_timeout_ms),
-            upstream_config,
+            upstream_config_value,
             &settings.http_proxy,
         )
         .await?;
 
-    get_server_details_with_client(address, server_id, &client, fallback_name).await
+    let result = get_server_details_with_client(address, server_id, &client, fallback_name).await;
+    if should_refresh_upstream_config_after_error(&result) {
+        log::info!("get_server_details failed with a refreshable upstream error; refreshing nonce and retrying once");
+        let stale_nonce = client.config().nonce.clone();
+        let refreshed_config = crate::refresh_startup_upstream_config_if_stale(
+            pool,
+            upstream_config,
+            Some(&stale_nonce),
+        )
+        .await;
+        let refreshed_client = upstream_client_cache
+            .get_or_create(
+                Duration::from_millis(settings.query_timeout_ms),
+                refreshed_config,
+                &settings.http_proxy,
+            )
+            .await?;
+        return get_server_details_with_client(
+            address,
+            server_id,
+            &refreshed_client,
+            fallback_name,
+        )
+        .await;
+    }
+
+    result
 }
 
 async fn upstream_config_for_request(
-    pool: &SqlitePool,
-    upstream_config: &Arc<OnceCell<UpstreamApiConfig>>,
+    upstream_config: &Arc<UpstreamConfigState>,
 ) -> UpstreamApiConfig {
-    upstream_config
-        .get_or_init(|| async { crate::load_startup_upstream_config(pool).await })
-        .await
-        .clone()
+    upstream_config.current().await
+}
+
+fn should_refresh_upstream_config_after_error<T>(result: &AppResult<T>) -> bool {
+    match result {
+        Err(AppError::StaleUpstreamNonce(_)) => true,
+        _ => false,
+    }
 }
 
 async fn get_server_details_with_client(

@@ -8,6 +8,8 @@ use crate::steam_launcher;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use reqwest::multipart::Form;
+use serde::Deserialize;
+use serde_json::Value;
 use std::time::Duration;
 
 const DEFAULT_POST_URL: &str = "https://zhrradiant.com/wp-admin/admin-ajax.php";
@@ -105,6 +107,10 @@ impl UpstreamClientCache {
 }
 
 impl HttpUpstreamServerClient {
+    pub fn config(&self) -> &UpstreamApiConfig {
+        &self.config
+    }
+
     pub fn new(timeout: Duration, http_proxy: &HttpProxySettings) -> AppResult<Self> {
         Self::with_config_and_proxy(timeout, UpstreamApiConfig::default(), http_proxy)
     }
@@ -434,11 +440,56 @@ fn parse_response_body<T>(operation: &str, body: &str) -> AppResult<T>
 where
     T: serde::de::DeserializeOwned,
 {
+    reject_stale_nonce_response(operation, body)?;
+
     serde_json::from_str(body).map_err(|err| {
         AppError::UpstreamUnavailable(format!(
             "failed to parse {operation} upstream response JSON: {err}"
         ))
     })
+}
+
+fn reject_stale_nonce_response(operation: &str, body: &str) -> AppResult<()> {
+    let envelope: UpstreamResponseEnvelope = serde_json::from_str(body).map_err(|err| {
+        AppError::UpstreamUnavailable(format!(
+            "failed to parse {operation} upstream response envelope: {err}"
+        ))
+    })?;
+
+    if !envelope.success && response_data_reports_stale_nonce(&envelope.data) {
+        return Err(AppError::StaleUpstreamNonce(
+            response_data_message(&envelope.data)
+                .unwrap_or("upstream security verification failed")
+                .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn response_data_reports_stale_nonce(data: &Value) -> bool {
+    response_data_message(data)
+        .map(|message| message.contains("安全验证失败"))
+        .unwrap_or(false)
+}
+
+fn response_data_message(data: &Value) -> Option<&str> {
+    match data {
+        Value::String(message) => Some(message.trim()),
+        Value::Object(object) => object
+            .get("message")
+            .or_else(|| object.get("error"))
+            .and_then(Value::as_str)
+            .map(str::trim),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct UpstreamResponseEnvelope {
+    success: bool,
+    #[serde(default)]
+    data: Value,
 }
 
 fn list_form(request: &PublicServersPageRequest) -> Form {
@@ -886,6 +937,10 @@ mod tests {
         .to_string()
     }
 
+    fn stale_nonce_response_json() -> String {
+        r#"{"success":false,"data":"安全验证失败"}"#.to_string()
+    }
+
     fn sample_params() -> ServerQueryParams {
         ServerQueryParams {
             page: 1,
@@ -911,6 +966,17 @@ mod tests {
             result.items[0].mode_tags,
             vec!["coop".to_string(), "secure".to_string()]
         );
+    }
+
+    #[test]
+    fn parses_security_verification_failure_as_stale_nonce() {
+        let error = parse_response_body::<ServerListResponse>(
+            "query_servers",
+            &stale_nonce_response_json(),
+        )
+        .expect_err("security verification failure should refresh nonce");
+
+        assert!(matches!(error, AppError::StaleUpstreamNonce(_)));
     }
 
     #[test]

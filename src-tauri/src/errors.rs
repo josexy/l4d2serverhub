@@ -5,6 +5,8 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Network timeout")]
     NetworkTimeout,
+    #[error("Upstream nonce expired: {0}")]
+    StaleUpstreamNonce(String),
     #[error("Upstream request failed: {0}")]
     UpstreamUnavailable(String),
     #[error("Invalid address: {0}")]
@@ -29,6 +31,7 @@ impl AppError {
     fn command_kind(&self) -> CommandErrorKind {
         match self {
             AppError::NetworkTimeout => CommandErrorKind::NetworkTimeout,
+            AppError::StaleUpstreamNonce(_) => CommandErrorKind::UpstreamUnavailable,
             AppError::UpstreamUnavailable(_) => CommandErrorKind::UpstreamUnavailable,
             AppError::InvalidAddress(_) => CommandErrorKind::InvalidAddress,
             AppError::LaunchFailed(_) => CommandErrorKind::LaunchFailed,
