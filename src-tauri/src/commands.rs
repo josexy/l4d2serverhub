@@ -2,7 +2,8 @@ use crate::errors::{AppError, AppResult, CommandError, CommandResult};
 use crate::import_export::BackupPayload;
 use crate::models::{
     AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, SearchHistoryRecord,
-    ServerDetails, ServerFilters, ServerQueryParams, ServerQueryResult, ServerSnapshot, ServerSort,
+    ServerDetails, ServerDetailsQueryMode, ServerFilters, ServerQueryParams, ServerQueryResult,
+    ServerSnapshot, ServerSort,
 };
 use crate::upstream_api::{UpstreamApiConfig, UpstreamClientCache, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
@@ -434,6 +435,16 @@ async fn get_server_details_impl(
     fallback_name: Option<&str>,
 ) -> AppResult<ServerDetails> {
     let settings = settings_store::get_settings(pool).await?;
+    if settings.server_details_query_mode == ServerDetailsQueryMode::A2sUdp {
+        return crate::a2s_query::query_server_details(
+            address,
+            server_id,
+            fallback_name,
+            Duration::from_millis(settings.query_timeout_ms),
+        )
+        .await;
+    }
+
     let upstream_config_value = upstream_config_for_request(upstream_config).await;
     let client = upstream_client_cache
         .get_or_create(
@@ -984,6 +995,64 @@ mod tests {
         assert!(matches!(error, AppError::InvalidAddress(_)));
         assert!(client.take_query_calls().is_empty());
         assert!(client.take_detail_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_server_details_a2s_mode_does_not_prepare_http_client() {
+        let pool = memory_pool().await;
+        sqlx::query("INSERT INTO settings (key, value_json) VALUES (?, ?)")
+            .bind("app")
+            .bind(
+                r#"{
+                    "queryTimeoutMs": 250,
+                    "serverDetailsQueryMode": "a2sUdp",
+                    "theme": "dark",
+                    "language": "system",
+                    "httpProxy": {
+                        "mode": "custom",
+                        "customUrl": "not a proxy url"
+                    },
+                    "serverBrowser": {
+                        "filters": {
+                            "query": "",
+                            "showOnline": true,
+                            "showEmpty": false,
+                            "showOfficial": true,
+                            "showThird": true,
+                            "modeSelections": ["coop", "realism", "survival", "versus", "scavenge", "unknown"],
+                            "customRules": {
+                                "priority": "whitelist",
+                                "whitelist": { "ip": "", "text": "" },
+                                "blacklist": { "ip": "", "text": "" }
+                            }
+                        },
+                        "sort": "none",
+                        "pageSize": 50
+                    },
+                    "logging": {
+                        "enabled": false,
+                        "level": "info"
+                    }
+                }"#,
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        let upstream_config = Arc::new(UpstreamConfigState::new(UpstreamApiConfig::default()));
+        let upstream_client_cache = UpstreamClientCache::default();
+
+        let error = get_server_details_impl(
+            &pool,
+            &upstream_config,
+            &upstream_client_cache,
+            "https://1.2.3.4:27015",
+            None,
+            None,
+        )
+        .await
+        .expect_err("A2S mode should validate the server address before HTTP client setup");
+
+        assert!(matches!(error, AppError::InvalidAddress(_)));
     }
 
     #[tokio::test]

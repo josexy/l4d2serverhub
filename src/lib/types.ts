@@ -2,6 +2,7 @@ export type QueryRegion = "asia" | "all";
 export type ThemePreference = "system" | "light" | "dark";
 export type LanguagePreference = "system" | "en" | "zh-CN";
 export type HttpProxyMode = "none" | "system" | "custom";
+export type ServerDetailsQueryMode = "a2sUdp" | "http";
 export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
 export type CommandErrorKind =
   | "networkTimeout"
@@ -111,6 +112,7 @@ export interface SearchHistoryRecord {
 
 export interface AppSettings {
   queryTimeoutMs: number;
+  serverDetailsQueryMode: ServerDetailsQueryMode;
   theme: ThemePreference;
   language: LanguagePreference;
   httpProxy: HttpProxySettings;

@@ -305,7 +305,7 @@ export const zhCn: Messages = {
     eyebrow: "设置",
     title: "客户端设置",
     sectionTitle: "查询行为",
-    sectionDescription: "调整应用与上游服务器列表服务交互的方式。",
+    sectionDescription: "调整应用查询服务器列表和详情数据的方式。",
     loggingSectionTitle: "诊断日志",
     loggingSectionDescription:
       "将故障排查日志写入应用日志目录。单文件达到 5 MiB 后轮转，保留最近 5 个文件。",
@@ -320,7 +320,10 @@ export const zhCn: Messages = {
     },
     labels: {
       queryTimeout: "查询超时",
-      queryTimeoutDescription: "上游 HTTP 请求允许使用的毫秒数。",
+      queryTimeoutDescription: "HTTP 和 A2S UDP 请求允许使用的毫秒数。",
+      detailsQueryMode: "详情查询方式",
+      detailsQueryModeDescription:
+        "A2S UDP 查询服务器详情更快，且不使用 HTTP 代理。",
       proxy: "HTTP 代理",
       proxyDescription: "用于上游服务器列表 HTTP 请求的代理。",
       theme: "主题",
@@ -339,6 +342,8 @@ export const zhCn: Messages = {
       proxyNone: "无代理",
       proxySystem: "系统代理",
       proxyCustom: "自定义代理",
+      detailsQueryA2sUdp: "A2S UDP",
+      detailsQueryHttp: "HTTP 接口",
       languageSystem: "跟随系统",
       languageEnglish: "英文",
       languageChinese: "简体中文",

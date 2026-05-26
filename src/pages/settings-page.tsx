@@ -39,11 +39,13 @@ import type {
   HttpProxyMode,
   LanguagePreference,
   LogLevel,
+  ServerDetailsQueryMode,
   ThemePreference,
 } from "@/lib/types";
 
 type SettingsDraft = {
   queryTimeoutMs: string;
+  serverDetailsQueryMode: ServerDetailsQueryMode;
   proxyMode: HttpProxyMode;
   customProxyUrl: string;
   theme: ThemePreference;
@@ -70,6 +72,7 @@ const NUMERIC_RULES: Record<
 function draftFromSettings(settings: AppSettings): SettingsDraft {
   return {
     queryTimeoutMs: String(settings.queryTimeoutMs),
+    serverDetailsQueryMode: settings.serverDetailsQueryMode,
     proxyMode: settings.httpProxy.mode,
     customProxyUrl: settings.httpProxy.customUrl,
     theme: settings.theme,
@@ -117,6 +120,7 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     settings.httpProxy.customUrl,
     settings.httpProxy.mode,
     settings.queryTimeoutMs,
+    settings.serverDetailsQueryMode,
     settings.theme,
     settings.logging.enabled,
     settings.logging.level,
@@ -205,6 +209,7 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
       settings: {
         ...settings,
         queryTimeoutMs: parsedValues.queryTimeoutMs,
+        serverDetailsQueryMode: draft.serverDetailsQueryMode,
         httpProxy: {
           mode: draft.proxyMode,
           customUrl:
@@ -506,6 +511,41 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
                     </p>
                   ) : null}
                 </div>
+
+                <div>
+                  <label
+                    htmlFor="details-query-mode"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    {messages.settings.labels.detailsQueryMode}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {messages.settings.labels.detailsQueryModeDescription}
+                  </p>
+                </div>
+                <Select
+                  value={draft.serverDetailsQueryMode}
+                  onValueChange={(value) =>
+                    updateDraft(
+                      "serverDetailsQueryMode",
+                      value as ServerDetailsQueryMode,
+                    )
+                  }
+                >
+                  <SelectTrigger id="details-query-mode" className="w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="a2sUdp">
+                        {messages.settings.options.detailsQueryA2sUdp}
+                      </SelectItem>
+                      <SelectItem value="http">
+                        {messages.settings.options.detailsQueryHttp}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
 
                 <div>
                   <label htmlFor="proxy-mode" className="text-sm font-medium text-foreground">

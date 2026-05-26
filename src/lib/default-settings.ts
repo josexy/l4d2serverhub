@@ -2,6 +2,7 @@ import { createDefaultFilters } from "@/lib/filters";
 
 export const DEFAULT_APP_SETTINGS = {
   queryTimeoutMs: 10000,
+  serverDetailsQueryMode: "a2sUdp",
   theme: "dark",
   language: "system",
   httpProxy: {

@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+pub mod a2s_query;
 pub mod commands;
 pub mod errors;
 pub mod favorites_store;

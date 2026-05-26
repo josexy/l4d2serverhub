@@ -1,8 +1,9 @@
 use crate::errors::{AppError, AppResult};
 use crate::models::{
-    CustomRulePriority, HttpProxyMode, HttpProxySettings, PublicServersPageRequest, ServerDetails,
-    ServerDetailsRequest, ServerDetailsResponse, ServerListResponse, ServerPlayer,
-    ServerQueryParams, ServerQueryResult, ServerSnapshot, ServerSnapshotInput, ServerSort,
+    format_player_duration, CustomRulePriority, HttpProxyMode, HttpProxySettings,
+    PublicServersPageRequest, ServerDetails, ServerDetailsRequest, ServerDetailsResponse,
+    ServerListResponse, ServerPlayer, ServerQueryParams, ServerQueryResult, ServerSnapshot,
+    ServerSnapshotInput, ServerSort,
 };
 use crate::steam_launcher;
 use async_trait::async_trait;
@@ -596,7 +597,7 @@ fn map_details_response(
                 name: player.name.clone(),
                 score: i32::try_from(player.score).map_err(out_of_range_error)?,
                 duration_sec: player.duration as f32,
-                duration_formatted: player.duration_formatted.clone(),
+                duration_formatted: format_player_duration(player.duration),
             })
         })
         .collect::<AppResult<Vec<_>>>()?;
@@ -1002,6 +1003,7 @@ mod tests {
         assert_eq!(result.players.len(), 1);
         assert_eq!(result.players[0].name, "Alice");
         assert_eq!(result.players[0].score, 15);
+        assert_eq!(result.players[0].duration_formatted, "25m24s");
     }
 
     #[test]

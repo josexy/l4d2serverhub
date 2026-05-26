@@ -304,7 +304,7 @@ export const en = {
     eyebrow: "Settings",
     title: "Client settings",
     sectionTitle: "Query behavior",
-    sectionDescription: "Tune how the app talks to the upstream server list service.",
+    sectionDescription: "Tune how the app queries server list and detail data.",
     loggingSectionTitle: "Diagnostic logging",
     loggingSectionDescription:
       "Write troubleshooting logs to the app log directory. Files rotate at 5 MiB and keep the latest 5 files.",
@@ -319,7 +319,10 @@ export const en = {
     },
     labels: {
       queryTimeout: "Query timeout",
-      queryTimeoutDescription: "Milliseconds allowed for upstream HTTP requests.",
+      queryTimeoutDescription: "Milliseconds allowed for HTTP and A2S UDP requests.",
+      detailsQueryMode: "Details query method",
+      detailsQueryModeDescription:
+        "A2S UDP is faster for server details and does not use the HTTP proxy.",
       proxy: "HTTP proxy",
       proxyDescription: "Proxy used for upstream server list HTTP requests.",
       theme: "Theme",
@@ -338,6 +341,8 @@ export const en = {
       proxyNone: "No proxy",
       proxySystem: "System proxy",
       proxyCustom: "Custom proxy",
+      detailsQueryA2sUdp: "A2S UDP",
+      detailsQueryHttp: "HTTP API",
       languageSystem: "System",
       languageEnglish: "English",
       languageChinese: "Chinese (Simplified)",

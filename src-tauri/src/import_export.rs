@@ -243,6 +243,7 @@ where
         &["queryTimeoutMs", "theme", "language", "serverBrowser"],
         &[
             "queryTimeoutMs",
+            "serverDetailsQueryMode",
             "theme",
             "language",
             "serverBrowser",

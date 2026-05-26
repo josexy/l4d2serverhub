@@ -35,9 +35,24 @@ function formatPing(pingMs: number | null, unknownLabel: string): string {
 }
 
 function formatDuration(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.floor(seconds % 60);
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+  const totalSeconds =
+    Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainder = totalSeconds % 60;
+  const parts = [];
+
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes > 0) {
+    parts.push(`${minutes}m`);
+  }
+  if (remainder > 0 || parts.length === 0) {
+    parts.push(`${remainder}s`);
+  }
+
+  return parts.join("");
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -144,7 +159,7 @@ function createPlaceholderPlayers(
     name: getName(index + 1),
     score: 0,
     durationSec: 0,
-    durationFormatted: "0",
+    durationFormatted: "0s",
   }));
 }
 

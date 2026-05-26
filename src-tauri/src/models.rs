@@ -400,6 +400,30 @@ pub struct ServerPlayer {
     pub duration_formatted: String,
 }
 
+pub fn format_player_duration(seconds: f64) -> String {
+    let total_seconds = if seconds.is_finite() && seconds > 0.0 {
+        seconds.floor() as u64
+    } else {
+        0
+    };
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    let mut formatted = String::new();
+
+    if hours > 0 {
+        formatted.push_str(&format!("{hours}h"));
+    }
+    if minutes > 0 {
+        formatted.push_str(&format!("{minutes}m"));
+    }
+    if seconds > 0 || formatted.is_empty() {
+        formatted.push_str(&format!("{seconds}s"));
+    }
+
+    formatted
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerDetails {
@@ -481,6 +505,8 @@ pub struct AppSettings {
     #[serde(default = "default_query_timeout_ms")]
     pub query_timeout_ms: u64,
     #[serde(default)]
+    pub server_details_query_mode: ServerDetailsQueryMode,
+    #[serde(default)]
     pub theme: ThemePreference,
     #[serde(default)]
     pub language: LanguagePreference,
@@ -496,6 +522,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             query_timeout_ms: default_query_timeout_ms(),
+            server_details_query_mode: ServerDetailsQueryMode::default(),
             theme: ThemePreference::default(),
             language: LanguagePreference::default(),
             http_proxy: HttpProxySettings::default(),
@@ -521,6 +548,14 @@ fn default_connection_count() -> u32 {
 
 fn default_default_page_size() -> usize {
     50
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ServerDetailsQueryMode {
+    #[default]
+    A2sUdp,
+    Http,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -800,6 +835,17 @@ mod tests {
             "lastSeenAt": Utc::now(),
             "lastQueryError": null,
         })
+    }
+
+    #[test]
+    fn formats_player_duration_with_compact_units() {
+        assert_eq!(format_player_duration(9030.9), "2h30m30s");
+        assert_eq!(format_player_duration(1800.0), "30m");
+        assert_eq!(format_player_duration(10.0), "10s");
+        assert_eq!(format_player_duration(3600.0), "1h");
+        assert_eq!(format_player_duration(0.0), "0s");
+        assert_eq!(format_player_duration(-12.0), "0s");
+        assert_eq!(format_player_duration(f64::NAN), "0s");
     }
 
     #[test]
