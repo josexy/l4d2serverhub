@@ -68,6 +68,7 @@ import type {
   Favorite,
   FavoriteGroup,
   FavoriteInput,
+  SavedServerSnapshotProgressEvent,
   SavedServerSnapshotQueryTarget,
   ServerQueryResult,
   ServerSnapshot,
@@ -171,16 +172,20 @@ async function queryAddressSnapshots(
   page: number,
   pageSize: number,
   useA2s: boolean,
+  onProgress?: (event: SavedServerSnapshotProgressEvent) => void,
 ): Promise<{
   pageResult: ServerQueryResult;
   snapshotsByAddress: Map<string, ServerSnapshot>;
 }> {
   if (useA2s) {
-    const result = await api.querySavedServerSnapshots({
+    const params = {
       targets,
       page,
       pageSize,
-    });
+    };
+    const result = onProgress
+      ? await api.querySavedServerSnapshotsWithProgress(params, onProgress)
+      : await api.querySavedServerSnapshots(params);
 
     return {
       pageResult: result.pageResult,
@@ -232,6 +237,27 @@ async function queryAddressSnapshots(
         : extraResults.find((result) => result.page === boundedPage) ?? firstResult,
     snapshotsByAddress,
   };
+}
+
+function pageResultWithSnapshot(
+  current: ServerQueryResult | null,
+  snapshot: ServerSnapshot,
+): ServerQueryResult | null {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const items = current.items.map((item) => {
+    if (item.address !== snapshot.address) {
+      return item;
+    }
+
+    changed = true;
+    return snapshot;
+  });
+
+  return changed ? { ...current, items } : current;
 }
 
 function getFavoriteStatus(
@@ -1034,13 +1060,118 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       return next;
     });
 
+    const targetIdsByAddress = new Map<string, string[]>();
+    for (const favorite of targets) {
+      const ids = targetIdsByAddress.get(favorite.address) ?? [];
+      ids.push(favorite.id);
+      targetIdsByAddress.set(favorite.address, ids);
+    }
+    const streamedAddresses = new Set<string>();
+    const persistTasks: Promise<void>[] = [];
+    const persistSnapshot = (favoriteId: string, snapshot: ServerSnapshot) =>
+      api
+        .updateFavoriteSnapshot(favoriteId, snapshot)
+        .then((updatedFavorite) => {
+          if (refreshRunIdRef.current !== runId) {
+            return;
+          }
+          setFavorites((current) =>
+            current.map((favorite) =>
+              favorite.id === updatedFavorite.id ? updatedFavorite : favorite,
+            ),
+          );
+        })
+        .catch((saveError) => {
+          if (refreshRunIdRef.current !== runId) {
+            return;
+          }
+          const message = formatCommandError(
+            saveError,
+            messages.favorites.toasts.saveFailed,
+          );
+          setFavoriteRefreshErrors((current) => {
+            const next = new Map(current);
+            next.set(favoriteId, message);
+            return next;
+          });
+        });
+    const applySnapshotProgress = (
+      snapshot: ServerSnapshot,
+      options: { persist: boolean } = { persist: true },
+    ) => {
+      const favoriteIds = targetIdsByAddress.get(snapshot.address);
+      if (!favoriteIds?.length) {
+        return;
+      }
+
+      streamedAddresses.add(snapshot.address);
+      const favoriteIdSet = new Set(favoriteIds);
+      setFavorites((current) =>
+        current.map((favorite) =>
+          favoriteIdSet.has(favorite.id)
+            ? {
+                ...favorite,
+                serverId: snapshot.serverId ?? favorite.serverId,
+                lastSnapshot: snapshot,
+              }
+            : favorite,
+        ),
+      );
+      setFavoriteQueryResult((current) =>
+        pageResultWithSnapshot(current, snapshot),
+      );
+      setFavoriteRefreshErrors((current) => {
+        const next = new Map(current);
+        for (const favoriteId of favoriteIds) {
+          if (snapshot.lastQueryError) {
+            next.set(favoriteId, snapshot.lastQueryError);
+          } else {
+            next.delete(favoriteId);
+          }
+        }
+        return next;
+      });
+      setRefreshingFavoriteIds((current) => {
+        const next = new Set(current);
+        favoriteIds.forEach((favoriteId) => next.delete(favoriteId));
+        return next;
+      });
+
+      const selectedId = selectedDetailFavoriteIdRef.current;
+      if (selectedId && favoriteIdSet.has(selectedId)) {
+        setSelectedServer(snapshot);
+      }
+
+      if (options.persist) {
+        favoriteIds.forEach((favoriteId) => {
+          persistTasks.push(persistSnapshot(favoriteId, snapshot));
+        });
+      }
+    };
+
     try {
       const { pageResult, snapshotsByAddress } = await queryAddressSnapshots(
         snapshotTargets,
         requestedPage,
         requestedPageSize,
         settings.serverDetailsQueryMode === "a2sUdp",
+        (event) => {
+          if (refreshRunIdRef.current === runId) {
+            applySnapshotProgress(event.snapshot);
+          }
+        },
       );
+
+      if (refreshRunIdRef.current !== runId) {
+        return;
+      }
+
+      for (const snapshot of snapshotsByAddress.values()) {
+        if (!streamedAddresses.has(snapshot.address)) {
+          applySnapshotProgress(snapshot);
+        }
+      }
+      await Promise.allSettled(persistTasks);
 
       if (refreshRunIdRef.current !== runId) {
         return;
@@ -1049,27 +1180,15 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       const invalidIds = targets
         .filter((favorite) => !snapshotsByAddress.has(favorite.address))
         .map((favorite) => favorite.id);
-      const updatedFavorites = await Promise.all(
-        targets.flatMap((favorite) => {
-          const snapshot = snapshotsByAddress.get(favorite.address);
-          return snapshot ? [api.updateFavoriteSnapshot(favorite.id, snapshot)] : [];
-        }),
-      );
-
       await Promise.all(invalidIds.map((id) => api.deleteFavorite(id)));
 
       if (refreshRunIdRef.current !== runId) {
         return;
       }
 
-      const updatedById = new Map(
-        updatedFavorites.map((favorite) => [favorite.id, favorite]),
-      );
       const invalidIdSet = new Set(invalidIds);
       setFavorites((current) =>
-        current
-          .filter((favorite) => !invalidIdSet.has(favorite.id))
-          .map((favorite) => updatedById.get(favorite.id) ?? favorite),
+        current.filter((favorite) => !invalidIdSet.has(favorite.id)),
       );
       setFavoriteQueryResult(pageResult);
       setFavoritePage(pageResult.page);
@@ -1086,9 +1205,14 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         selectedDetailFavoriteIdRef.current = null;
         setSelectedServer(null);
       } else if (selectedId) {
-        const updatedFavorite = updatedById.get(selectedId);
-        if (updatedFavorite?.lastSnapshot) {
-          setSelectedServer(updatedFavorite.lastSnapshot);
+        const selectedFavorite = targets.find(
+          (favorite) => favorite.id === selectedId,
+        );
+        const snapshot = selectedFavorite
+          ? snapshotsByAddress.get(selectedFavorite.address)
+          : undefined;
+        if (snapshot) {
+          setSelectedServer(snapshot);
         }
       }
     } catch (refreshError) {

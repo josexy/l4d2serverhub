@@ -2,9 +2,9 @@ use crate::errors::{AppError, AppResult, CommandError, CommandResult};
 use crate::import_export::BackupPayload;
 use crate::models::{
     AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord,
-    SavedServerSnapshotQueryParams, SavedServerSnapshotQueryResult, SearchHistoryRecord,
-    ServerDetails, ServerDetailsQueryMode, ServerFilters, ServerQueryParams, ServerQueryResult,
-    ServerSnapshot, ServerSort,
+    SavedServerSnapshotProgressEvent, SavedServerSnapshotQueryParams,
+    SavedServerSnapshotQueryResult, SearchHistoryRecord, ServerDetails, ServerDetailsQueryMode,
+    ServerFilters, ServerQueryParams, ServerQueryResult, ServerSnapshot, ServerSort,
 };
 use crate::upstream_api::{UpstreamApiConfig, UpstreamClientCache, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
@@ -16,8 +16,10 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_opener::OpenerExt;
+
+pub const SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT: &str = "l4d2:saved-server-snapshot-progress";
 
 fn command_result<T>(operation: &str, result: AppResult<T>) -> CommandResult<T> {
     result.map_err(|error| {
@@ -77,12 +79,13 @@ pub async fn get_server_details(
 
 #[tauri::command]
 pub async fn query_saved_server_snapshots(
+    app_handle: AppHandle,
     state: State<'_, SharedState>,
     params: SavedServerSnapshotQueryParams,
 ) -> CommandResult<SavedServerSnapshotQueryResult> {
     command_result(
         "query_saved_server_snapshots",
-        query_saved_server_snapshots_impl(&state.pool, params).await,
+        query_saved_server_snapshots_impl(&state.pool, &app_handle, params).await,
     )
 }
 
@@ -578,13 +581,28 @@ async fn resolve_server_id_for_address_with_client(
 
 async fn query_saved_server_snapshots_impl(
     pool: &SqlitePool,
+    app_handle: &AppHandle,
     params: SavedServerSnapshotQueryParams,
 ) -> AppResult<SavedServerSnapshotQueryResult> {
     let settings = settings_store::get_settings(pool).await?;
+    let on_progress = params
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|request_id| !request_id.is_empty())
+        .map(|_| {
+            let app_handle = app_handle.clone();
+            Arc::new(move |event: SavedServerSnapshotProgressEvent| {
+                if let Err(error) = app_handle.emit(SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT, event) {
+                    log::warn!("failed to emit saved snapshot progress event: {error}");
+                }
+            }) as crate::a2s_query::SavedSnapshotProgressCallback
+        });
     crate::a2s_query::query_saved_server_snapshots(
         params,
         Duration::from_millis(settings.query_timeout_ms),
         crate::a2s_query::DEFAULT_BATCH_CONCURRENCY,
+        on_progress,
     )
     .await
 }

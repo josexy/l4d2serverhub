@@ -1,14 +1,15 @@
 use crate::errors::{AppError, AppResult};
 use crate::models::{
-    format_player_duration, SavedServerSnapshotQueryParams, SavedServerSnapshotQueryResult,
-    SavedServerSnapshotQueryTarget, ServerDetails, ServerPlayer, ServerQueryResult, ServerSnapshot,
-    ServerSnapshotInput,
+    format_player_duration, SavedServerSnapshotProgressEvent, SavedServerSnapshotQueryParams,
+    SavedServerSnapshotQueryResult, SavedServerSnapshotQueryTarget, ServerDetails, ServerPlayer,
+    ServerQueryResult, ServerSnapshot, ServerSnapshotInput,
 };
 use crate::steam_launcher;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, VecDeque};
 use std::io::ErrorKind;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::{lookup_host, UdpSocket};
 use tokio::time::{self, Instant as TokioInstant};
@@ -24,6 +25,9 @@ const DEFAULT_CHALLENGE: i32 = -1;
 const MAX_PACKET_SIZE: usize = 1400;
 const MAX_SPLIT_PACKETS: usize = 15;
 pub const DEFAULT_BATCH_CONCURRENCY: usize = 64;
+
+pub type SavedSnapshotProgressCallback =
+    Arc<dyn Fn(SavedServerSnapshotProgressEvent) + Send + Sync + 'static>;
 
 #[derive(Debug, Clone, PartialEq)]
 struct A2sInfo {
@@ -135,10 +139,15 @@ pub async fn query_saved_server_snapshots(
     params: SavedServerSnapshotQueryParams,
     timeout: Duration,
     concurrency: usize,
+    on_progress: Option<SavedSnapshotProgressCallback>,
 ) -> AppResult<SavedServerSnapshotQueryResult> {
     let total = params.targets.len();
     let page = params.page.max(1);
     let page_size = params.page_size.max(1);
+    let request_id = params
+        .request_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     let refreshed_at = Utc::now();
     log::info!(
         "A2S saved snapshot batch starting: targets={}, page={}, page_size={}, timeout={}ms, concurrency={}",
@@ -148,7 +157,17 @@ pub async fn query_saved_server_snapshots(
         timeout.as_millis(),
         concurrency.max(1)
     );
-    let worker = SavedSnapshotWorker::new(timeout, concurrency, refreshed_at).await?;
+    let worker = SavedSnapshotWorker::new(SavedSnapshotWorkerConfig {
+        timeout,
+        concurrency,
+        refreshed_at,
+        page,
+        page_size,
+        total,
+        request_id,
+        on_progress,
+    })
+    .await?;
     let snapshots = worker.query(params.targets).await?;
     let start = (page - 1).saturating_mul(page_size).min(snapshots.len());
     let end = (start + page_size).min(snapshots.len());
@@ -183,9 +202,26 @@ struct SavedSnapshotWorker {
     timeout: Duration,
     concurrency: usize,
     refreshed_at: DateTime<Utc>,
+    page: usize,
+    page_size: usize,
+    total: usize,
+    completed: usize,
+    request_id: Option<String>,
+    on_progress: Option<SavedSnapshotProgressCallback>,
     queue: VecDeque<SavedSnapshotJob>,
     pending: HashMap<SocketAddr, PendingInfoQuery>,
     snapshots: Vec<Option<ServerSnapshot>>,
+}
+
+struct SavedSnapshotWorkerConfig {
+    timeout: Duration,
+    concurrency: usize,
+    refreshed_at: DateTime<Utc>,
+    page: usize,
+    page_size: usize,
+    total: usize,
+    request_id: Option<String>,
+    on_progress: Option<SavedSnapshotProgressCallback>,
 }
 
 struct SavedSnapshotJob {
@@ -215,11 +251,7 @@ enum ReceivedPayload {
 }
 
 impl SavedSnapshotWorker {
-    async fn new(
-        timeout: Duration,
-        concurrency: usize,
-        refreshed_at: DateTime<Utc>,
-    ) -> AppResult<Self> {
+    async fn new(config: SavedSnapshotWorkerConfig) -> AppResult<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
             AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
         })?;
@@ -229,15 +261,21 @@ impl SavedSnapshotWorker {
                 .local_addr()
                 .map(|address| address.to_string())
                 .unwrap_or_else(|err| format!("unknown ({err})")),
-            timeout.as_millis(),
-            concurrency.max(1)
+            config.timeout.as_millis(),
+            config.concurrency.max(1)
         );
 
         Ok(Self {
             socket,
-            timeout,
-            concurrency: concurrency.max(1),
-            refreshed_at,
+            timeout: config.timeout,
+            concurrency: config.concurrency.max(1),
+            refreshed_at: config.refreshed_at,
+            page: config.page,
+            page_size: config.page_size,
+            total: config.total,
+            completed: 0,
+            request_id: config.request_id,
+            on_progress: config.on_progress,
             queue: VecDeque::new(),
             pending: HashMap::new(),
             snapshots: Vec::new(),
@@ -541,8 +579,35 @@ impl SavedSnapshotWorker {
 
     fn store_snapshot(&mut self, index: usize, snapshot: ServerSnapshot) {
         if let Some(slot) = self.snapshots.get_mut(index) {
+            if slot.is_none() {
+                self.completed += 1;
+            }
             *slot = Some(snapshot);
+            self.emit_progress(index);
         }
+    }
+
+    fn emit_progress(&self, index: usize) {
+        let (Some(request_id), Some(on_progress), Some(snapshot)) = (
+            self.request_id.as_ref(),
+            self.on_progress.as_ref(),
+            self.snapshots
+                .get(index)
+                .and_then(|snapshot| snapshot.as_ref()),
+        ) else {
+            return;
+        };
+
+        on_progress(SavedServerSnapshotProgressEvent {
+            request_id: request_id.clone(),
+            index,
+            completed: self.completed,
+            total: self.total,
+            page: self.page,
+            page_size: self.page_size,
+            refreshed_at: self.refreshed_at,
+            snapshot: snapshot.clone(),
+        });
     }
 }
 
@@ -1288,14 +1353,22 @@ mod tests {
             fallback_name: Some("Cached Server".to_string()),
             fallback_snapshot: Some(sample_snapshot("127.0.0.1:9")),
         };
+        let progress_events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+            SavedServerSnapshotProgressEvent,
+        >::new()));
+        let captured_progress_events = progress_events.clone();
         let result = query_saved_server_snapshots(
             SavedServerSnapshotQueryParams {
                 targets: vec![target],
                 page: 1,
                 page_size: 25,
+                request_id: Some("progress-error".to_string()),
             },
             Duration::from_millis(1),
             4,
+            Some(std::sync::Arc::new(move |event| {
+                captured_progress_events.lock().unwrap().push(event);
+            })),
         )
         .await
         .unwrap();
@@ -1305,6 +1378,14 @@ mod tests {
         assert_eq!(result.snapshots[0].address, "127.0.0.1:9");
         assert_eq!(result.snapshots[0].name, "Cached Server");
         assert!(result.snapshots[0].last_query_error.is_some());
+
+        let progress_events = progress_events.lock().unwrap();
+        assert_eq!(progress_events.len(), 1);
+        assert_eq!(progress_events[0].request_id, "progress-error");
+        assert_eq!(progress_events[0].index, 0);
+        assert_eq!(progress_events[0].completed, 1);
+        assert_eq!(progress_events[0].total, 1);
+        assert!(progress_events[0].snapshot.last_query_error.is_some());
     }
 
     #[tokio::test]
@@ -1326,6 +1407,10 @@ mod tests {
 
         let (address_a, server_a) = serve_one_info_response().await;
         let (address_b, server_b) = serve_one_info_response().await;
+        let progress_events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+            SavedServerSnapshotProgressEvent,
+        >::new()));
+        let captured_progress_events = progress_events.clone();
         let result = query_saved_server_snapshots(
             SavedServerSnapshotQueryParams {
                 targets: vec![
@@ -1344,9 +1429,13 @@ mod tests {
                 ],
                 page: 1,
                 page_size: 25,
+                request_id: Some("progress-success".to_string()),
             },
             Duration::from_secs(1),
             2,
+            Some(std::sync::Arc::new(move |event| {
+                captured_progress_events.lock().unwrap().push(event);
+            })),
         )
         .await
         .unwrap();
@@ -1360,5 +1449,15 @@ mod tests {
             .snapshots
             .iter()
             .all(|snapshot| snapshot.last_query_error.is_none()));
+
+        let progress_events = progress_events.lock().unwrap();
+        assert_eq!(progress_events.len(), 2);
+        assert!(progress_events
+            .iter()
+            .all(|event| event.request_id == "progress-success"));
+        assert_eq!(progress_events.last().map(|event| event.completed), Some(2));
+        assert!(progress_events
+            .iter()
+            .all(|event| event.total == 2 && event.page == 1 && event.page_size == 25));
     }
 }

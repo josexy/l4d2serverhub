@@ -53,6 +53,7 @@ import type {
   FavoriteGroup,
   FavoriteInput,
   HistoryRecord,
+  SavedServerSnapshotProgressEvent,
   SavedServerSnapshotQueryTarget,
   ServerQueryResult,
   ServerSnapshot,
@@ -205,16 +206,20 @@ async function queryAddressSnapshots(
   page: number,
   pageSize: number,
   useA2s: boolean,
+  onProgress?: (event: SavedServerSnapshotProgressEvent) => void,
 ): Promise<{
   pageResult: ServerQueryResult;
   snapshotsByAddress: Map<string, ServerSnapshot>;
 }> {
   if (useA2s) {
-    const result = await api.querySavedServerSnapshots({
+    const params = {
       targets,
       page,
       pageSize,
-    });
+    };
+    const result = onProgress
+      ? await api.querySavedServerSnapshotsWithProgress(params, onProgress)
+      : await api.querySavedServerSnapshots(params);
 
     return {
       pageResult: result.pageResult,
@@ -266,6 +271,27 @@ async function queryAddressSnapshots(
         : extraResults.find((result) => result.page === boundedPage) ?? firstResult,
     snapshotsByAddress,
   };
+}
+
+function pageResultWithSnapshot(
+  current: ServerQueryResult | null,
+  snapshot: ServerSnapshot,
+): ServerQueryResult | null {
+  if (!current) {
+    return current;
+  }
+
+  let changed = false;
+  const items = current.items.map((item) => {
+    if (item.address !== snapshot.address) {
+      return item;
+    }
+
+    changed = true;
+    return snapshot;
+  });
+
+  return changed ? { ...current, items } : current;
 }
 
 function clampColumnWidth(
@@ -777,13 +803,109 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       return next;
     });
 
+    const rowByTargetAddress = new Map(
+      targets.map((row) => [row.address, row] as const),
+    );
+    const streamedAddresses = new Set<string>();
+    const persistTasks: Promise<void>[] = [];
+    const persistSnapshot = (row: HistoryServerRow, snapshot: ServerSnapshot) =>
+      Promise.all(
+        row.records.map((record) => api.updateHistorySnapshot(record.id, snapshot)),
+      )
+        .then((updatedRecords) => {
+          if (refreshRunIdRef.current !== runId) {
+            return;
+          }
+          const updatedById = new Map(
+            updatedRecords.map((record) => [record.id, record]),
+          );
+          setHistory((current) =>
+            current.map((record) => updatedById.get(record.id) ?? record),
+          );
+        })
+        .catch((saveError) => {
+          if (refreshRunIdRef.current !== runId) {
+            return;
+          }
+          const message = formatCommandError(
+            saveError,
+            messages.history.toasts.snapshotSaveFailed,
+          );
+          setHistoryRefreshErrors((current) => {
+            const next = new Map(current);
+            next.set(row.key, message);
+            return next;
+          });
+        });
+    const applySnapshotProgress = (
+      snapshot: ServerSnapshot,
+      options: { persist: boolean } = { persist: true },
+    ) => {
+      const row = rowByTargetAddress.get(snapshot.address);
+      if (!row) {
+        return;
+      }
+
+      streamedAddresses.add(snapshot.address);
+      const recordIds = row.records.map((record) => record.id);
+      const recordIdSet = new Set(recordIds);
+      setHistory((current) =>
+        current.map((record) =>
+          recordIdSet.has(record.id)
+            ? historyRecordWithSnapshot(record, snapshot)
+            : record,
+        ),
+      );
+      setHistoryQueryResult((current) =>
+        pageResultWithSnapshot(current, snapshot),
+      );
+      setHistoryRefreshErrors((current) => {
+        const next = new Map(current);
+        if (snapshot.lastQueryError) {
+          next.set(row.key, snapshot.lastQueryError);
+        } else {
+          next.delete(row.key);
+        }
+        return next;
+      });
+      setRefreshingHistoryKeys((current) => {
+        const next = new Set(current);
+        next.delete(row.key);
+        return next;
+      });
+
+      if (selectedDetailRecordIdsRef.current.some((id) => recordIdSet.has(id))) {
+        setSelectedServer(snapshot);
+      }
+
+      if (options.persist) {
+        persistTasks.push(persistSnapshot(row, snapshot));
+      }
+    };
+
     try {
       const { pageResult, snapshotsByAddress } = await queryAddressSnapshots(
         snapshotTargets,
         requestedPage,
         requestedPageSize,
         settings.serverDetailsQueryMode === "a2sUdp",
+        (event) => {
+          if (refreshRunIdRef.current === runId) {
+            applySnapshotProgress(event.snapshot);
+          }
+        },
       );
+
+      if (refreshRunIdRef.current !== runId) {
+        return;
+      }
+
+      for (const snapshot of snapshotsByAddress.values()) {
+        if (!streamedAddresses.has(snapshot.address)) {
+          applySnapshotProgress(snapshot);
+        }
+      }
+      await Promise.allSettled(persistTasks);
 
       if (refreshRunIdRef.current !== runId) {
         return;
@@ -795,31 +917,15 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       const invalidIds = invalidRows.flatMap((row) =>
         row.records.map((record) => record.id),
       );
-      const updatedRecords = await Promise.all(
-        targets.flatMap((row) => {
-          const snapshot = snapshotsByAddress.get(row.address);
-          return snapshot
-            ? row.records.map((record) =>
-                api.updateHistorySnapshot(record.id, snapshot),
-              )
-            : [];
-        }),
-      );
-
       await Promise.all(invalidIds.map((id) => api.deleteHistory(id)));
 
       if (refreshRunIdRef.current !== runId) {
         return;
       }
 
-      const updatedById = new Map(
-        updatedRecords.map((record) => [record.id, record]),
-      );
       const invalidIdSet = new Set(invalidIds);
       setHistory((current) =>
-        current
-          .filter((record) => !invalidIdSet.has(record.id))
-          .map((record) => updatedById.get(record.id) ?? record),
+        current.filter((record) => !invalidIdSet.has(record.id)),
       );
       setHistoryQueryResult(pageResult);
       setHistoryPage(pageResult.page);
@@ -839,11 +945,16 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
         setSelectedServer(null);
       } else {
         const selectedRecordId = selectedDetailRecordIdsRef.current[0];
-        const updatedRecord = selectedRecordId
-          ? updatedById.get(selectedRecordId)
+        const selectedRow = selectedRecordId
+          ? targets.find((row) =>
+              row.records.some((record) => record.id === selectedRecordId),
+            )
           : undefined;
-        if (updatedRecord?.lastSnapshot) {
-          setSelectedServer(updatedRecord.lastSnapshot);
+        const snapshot = selectedRow
+          ? snapshotsByAddress.get(selectedRow.address)
+          : undefined;
+        if (snapshot) {
+          setSelectedServer(snapshot);
         }
       }
     } catch (refreshError) {

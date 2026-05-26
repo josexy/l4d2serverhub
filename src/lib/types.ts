@@ -184,11 +184,23 @@ export interface SavedServerSnapshotQueryParams {
   targets: SavedServerSnapshotQueryTarget[];
   page: number;
   pageSize: number;
+  requestId?: string | null;
 }
 
 export interface SavedServerSnapshotQueryResult {
   pageResult: ServerQueryResult;
   snapshots: ServerSnapshot[];
+}
+
+export interface SavedServerSnapshotProgressEvent {
+  requestId: string;
+  index: number;
+  completed: number;
+  total: number;
+  page: number;
+  pageSize: number;
+  refreshedAt: string;
+  snapshot: ServerSnapshot;
 }
 
 export interface BackupPayload {

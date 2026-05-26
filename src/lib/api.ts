@@ -1,5 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
   AppSettings,
   BackupPayload,
@@ -8,6 +9,7 @@ import type {
   FavoriteGroup,
   FavoriteInput,
   HistoryRecord,
+  SavedServerSnapshotProgressEvent,
   SavedServerSnapshotQueryParams,
   SavedServerSnapshotQueryResult,
   SearchHistoryRecord,
@@ -18,6 +20,40 @@ import type {
 } from "./types";
 
 export const HISTORY_UPDATED_EVENT = "l4d2:history-updated";
+export const SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT =
+  "l4d2:saved-server-snapshot-progress";
+
+function createRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+async function querySavedServerSnapshotsWithProgress(
+  params: SavedServerSnapshotQueryParams,
+  onProgress: (event: SavedServerSnapshotProgressEvent) => void,
+): Promise<SavedServerSnapshotQueryResult> {
+  const requestId = createRequestId();
+  let unlisten: (() => void) | null = null;
+
+  try {
+    unlisten = await listen<SavedServerSnapshotProgressEvent>(
+      SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT,
+      (event) => {
+        if (event.payload.requestId === requestId) {
+          onProgress(event.payload);
+        }
+      },
+    );
+
+    return await invoke<SavedServerSnapshotQueryResult>(
+      "query_saved_server_snapshots",
+      {
+        params: { ...params, requestId },
+      },
+    );
+  } finally {
+    unlisten?.();
+  }
+}
 
 export const api = {
   getAppVersion: () => getVersion(),
@@ -41,6 +77,7 @@ export const api = {
     invoke<SavedServerSnapshotQueryResult>("query_saved_server_snapshots", {
       params,
     }),
+  querySavedServerSnapshotsWithProgress,
   connectToServer: (
     address: string,
     historySnapshot: ServerSnapshot | null = null,

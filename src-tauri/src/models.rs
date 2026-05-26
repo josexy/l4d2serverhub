@@ -792,6 +792,8 @@ pub struct SavedServerSnapshotQueryParams {
     pub targets: Vec<SavedServerSnapshotQueryTarget>,
     pub page: usize,
     pub page_size: usize,
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -811,6 +813,19 @@ pub struct SavedServerSnapshotQueryTarget {
 pub struct SavedServerSnapshotQueryResult {
     pub page_result: ServerQueryResult,
     pub snapshots: Vec<ServerSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedServerSnapshotProgressEvent {
+    pub request_id: String,
+    pub index: usize,
+    pub completed: usize,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+    pub refreshed_at: DateTime<Utc>,
+    pub snapshot: ServerSnapshot,
 }
 
 #[cfg(test)]
