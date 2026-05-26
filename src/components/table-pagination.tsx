@@ -144,7 +144,7 @@ export function TablePagination({
                 aria-current={isCurrent ? "page" : undefined}
                 disabled={disabled || isCurrent}
                 className={cn(
-                  "min-w-8 px-2 font-semibold tabular-nums",
+                  "size-7 rounded-full p-0 font-semibold tabular-nums",
                   isCurrent
                     ? "shadow-sm disabled:opacity-100"
                     : "text-foreground hover:bg-muted",
