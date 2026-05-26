@@ -49,9 +49,21 @@ pub async fn query_server_details(
     let parsed = steam_launcher::parse_server_address(address)?;
     let normalized_address = parsed.as_string();
     let socket_address = resolve_socket_address(&normalized_address).await?;
+    log::debug!(
+        "A2S details query starting: address='{}', timeout={}ms",
+        normalized_address,
+        timeout.as_millis()
+    );
     let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
         AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
     })?;
+    log::trace!(
+        "A2S details UDP socket bound: local={}",
+        socket
+            .local_addr()
+            .map(|address| address.to_string())
+            .unwrap_or_else(|err| format!("unknown ({err})"))
+    );
     socket.connect(socket_address).await.map_err(|err| {
         AppError::UpstreamUnavailable(format!("failed to connect UDP socket: {err}"))
     })?;
@@ -69,6 +81,14 @@ pub async fn query_server_details(
         ping_ms,
     )?;
 
+    log::info!(
+        "A2S details query completed: address='{}', players={}, listed_players={}, ping={}ms",
+        snapshot.address,
+        snapshot.players,
+        players.len(),
+        ping_ms
+    );
+
     Ok(ServerDetails { snapshot, players })
 }
 
@@ -81,6 +101,11 @@ pub async fn query_server_snapshot(
     let parsed = steam_launcher::parse_server_address(address)?;
     let normalized_address = parsed.as_string();
     let socket_address = resolve_socket_address(&normalized_address).await?;
+    log::debug!(
+        "A2S snapshot query starting: address='{}', timeout={}ms",
+        normalized_address,
+        timeout.as_millis()
+    );
     let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
         AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
     })?;
@@ -91,6 +116,11 @@ pub async fn query_server_snapshot(
     let started_at = Instant::now();
     let info = query_info(&socket, timeout).await?;
     let ping_ms = u32::try_from(started_at.elapsed().as_millis()).unwrap_or(u32::MAX);
+    log::debug!(
+        "A2S snapshot query completed: address='{}', ping={}ms",
+        normalized_address,
+        ping_ms
+    );
     snapshot_from_info(
         parsed,
         normalized_address,
@@ -110,11 +140,31 @@ pub async fn query_saved_server_snapshots(
     let page = params.page.max(1);
     let page_size = params.page_size.max(1);
     let refreshed_at = Utc::now();
+    log::info!(
+        "A2S saved snapshot batch starting: targets={}, page={}, page_size={}, timeout={}ms, concurrency={}",
+        total,
+        page,
+        page_size,
+        timeout.as_millis(),
+        concurrency.max(1)
+    );
     let worker = SavedSnapshotWorker::new(timeout, concurrency, refreshed_at).await?;
     let snapshots = worker.query(params.targets).await?;
     let start = (page - 1).saturating_mul(page_size).min(snapshots.len());
     let end = (start + page_size).min(snapshots.len());
     let page_items = snapshots[start..end].to_vec();
+
+    let failed = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.last_query_error.is_some())
+        .count();
+    log::info!(
+        "A2S saved snapshot batch completed: targets={}, snapshots={}, failed={}, page_items={}",
+        total,
+        snapshots.len(),
+        failed,
+        page_items.len()
+    );
 
     Ok(SavedServerSnapshotQueryResult {
         page_result: ServerQueryResult {
@@ -173,6 +223,15 @@ impl SavedSnapshotWorker {
         let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|err| {
             AppError::UpstreamUnavailable(format!("failed to bind UDP socket: {err}"))
         })?;
+        log::debug!(
+            "A2S saved snapshot worker socket bound: local={}, timeout={}ms, concurrency={}",
+            socket
+                .local_addr()
+                .map(|address| address.to_string())
+                .unwrap_or_else(|err| format!("unknown ({err})")),
+            timeout.as_millis(),
+            concurrency.max(1)
+        );
 
         Ok(Self {
             socket,
@@ -192,8 +251,22 @@ impl SavedSnapshotWorker {
         self.snapshots = vec![None; targets.len()];
         for (index, target) in targets.into_iter().enumerate() {
             match self.prepare_job(index, target).await {
-                Ok(job) => self.queue.push_back(job),
+                Ok(job) => {
+                    log::trace!(
+                        "A2S saved snapshot target queued: index={}, address='{}', socket={}",
+                        index,
+                        job.normalized_address,
+                        job.socket_address
+                    );
+                    self.queue.push_back(job);
+                }
                 Err((target, error)) => {
+                    log::warn!(
+                        "A2S saved snapshot target rejected before query: index={}, address='{}', error={}",
+                        index,
+                        target.address,
+                        error
+                    );
                     self.store_snapshot(
                         index,
                         snapshot_from_query_error(target, error, self.refreshed_at)?,
@@ -223,6 +296,15 @@ impl SavedSnapshotWorker {
             }
         }
 
+        let completed = self
+            .snapshots
+            .iter()
+            .filter(|snapshot| snapshot.is_some())
+            .count();
+        log::debug!(
+            "A2S saved snapshot worker finished: completed={}, pending=0, queued=0",
+            completed
+        );
         Ok(self.snapshots.into_iter().flatten().collect())
     }
 
@@ -264,6 +346,12 @@ impl SavedSnapshotWorker {
             })?;
 
             if let Err(error) = self.send_info_request(job.socket_address, None).await {
+                log::warn!(
+                    "A2S saved snapshot send failed: index={}, address='{}', error={}",
+                    job.index,
+                    job.normalized_address,
+                    error
+                );
                 self.store_snapshot(
                     job.index,
                     snapshot_from_query_error(job.target, error, self.refreshed_at)?,
@@ -271,8 +359,11 @@ impl SavedSnapshotWorker {
                 continue;
             }
 
+            let job_index = job.index;
+            let job_address = job.normalized_address.clone();
+            let job_socket_address = job.socket_address;
             self.pending.insert(
-                job.socket_address,
+                job_socket_address,
                 PendingInfoQuery {
                     job,
                     sent_at: Instant::now(),
@@ -280,6 +371,12 @@ impl SavedSnapshotWorker {
                     challenged: false,
                     split: None,
                 },
+            );
+            log::trace!(
+                "A2S_INFO request sent: index={}, address='{}', socket={}, challenged=false",
+                job_index,
+                job_address,
+                job_socket_address
             );
         }
 
@@ -322,6 +419,17 @@ impl SavedSnapshotWorker {
         if payload.first().copied() == Some(CHALLENGE_RESPONSE) {
             let mut reader = ByteReader::new(&payload[1..]);
             let challenge = reader.read_i32()?;
+            let pending_index = self
+                .pending
+                .get(&address)
+                .map(|pending| pending.job.index)
+                .unwrap_or_default();
+            log::debug!(
+                "A2S_INFO challenge received: index={}, socket={}, challenge={}",
+                pending_index,
+                address,
+                challenge
+            );
             if self
                 .pending
                 .get(&address)
@@ -346,6 +454,12 @@ impl SavedSnapshotWorker {
             pending.split = None;
             pending.sent_at = Instant::now();
             pending.deadline = TokioInstant::now() + self.timeout;
+            log::trace!(
+                "A2S_INFO challenge retry sent: index={}, address='{}', socket={}",
+                pending.job.index,
+                pending.job.normalized_address,
+                address
+            );
             return Ok(());
         }
 
@@ -372,6 +486,12 @@ impl SavedSnapshotWorker {
             info,
             ping_ms,
         )?;
+        log::debug!(
+            "A2S saved snapshot query completed: index={}, address='{}', ping={}ms",
+            pending.job.index,
+            snapshot.address,
+            ping_ms
+        );
         self.store_snapshot(pending.job.index, snapshot);
         Ok(())
     }
@@ -381,6 +501,12 @@ impl SavedSnapshotWorker {
             .pending
             .remove(&address)
             .ok_or_else(|| AppError::Unexpected("A2S pending query disappeared".to_string()))?;
+        log::warn!(
+            "A2S saved snapshot query failed: index={}, address='{}', error={}",
+            pending.job.index,
+            pending.job.normalized_address,
+            error
+        );
         let snapshot = snapshot_from_query_error(pending.job.target, error, self.refreshed_at)?;
         self.store_snapshot(pending.job.index, snapshot);
         Ok(())
@@ -395,6 +521,14 @@ impl SavedSnapshotWorker {
             .collect::<Vec<_>>();
 
         for address in expired {
+            if let Some(pending) = self.pending.get(&address) {
+                log::warn!(
+                    "A2S saved snapshot query timed out: index={}, address='{}', timeout={}ms",
+                    pending.job.index,
+                    pending.job.normalized_address,
+                    self.timeout.as_millis()
+                );
+            }
             self.finish_with_error(address, AppError::NetworkTimeout)?;
         }
 
@@ -459,7 +593,15 @@ fn parse_worker_payload(packet: &[u8]) -> AppResult<ReceivedPayload> {
 
     match header {
         SIMPLE_RESPONSE_HEADER => Ok(ReceivedPayload::Payload(packet[4..].to_vec())),
-        SPLIT_RESPONSE_HEADER => Ok(ReceivedPayload::Split(parse_split_packet(packet)?)),
+        SPLIT_RESPONSE_HEADER => {
+            let part = parse_split_packet(packet)?;
+            log::trace!(
+                "A2S worker split response part received: part={}/{}",
+                part.number + 1,
+                part.total
+            );
+            Ok(ReceivedPayload::Split(part))
+        }
         value => Err(AppError::UpstreamUnavailable(format!(
             "A2S response had unsupported header {value}"
         ))),
@@ -628,6 +770,11 @@ async fn send_query(
     request: &[u8],
     timeout: Duration,
 ) -> AppResult<QueryResponse> {
+    log::trace!(
+        "A2S query send: bytes={}, timeout={}ms",
+        request.len(),
+        timeout.as_millis()
+    );
     socket
         .send(request)
         .await
@@ -635,7 +782,9 @@ async fn send_query(
     let payload = receive_payload(socket, timeout).await?;
     if payload.first().copied() == Some(CHALLENGE_RESPONSE) {
         let mut reader = ByteReader::new(&payload[1..]);
-        return Ok(QueryResponse::Challenge(reader.read_i32()?));
+        let challenge = reader.read_i32()?;
+        log::debug!("A2S query challenge received: challenge={challenge}");
+        return Ok(QueryResponse::Challenge(challenge));
     }
 
     Ok(QueryResponse::Payload(payload))
@@ -650,7 +799,10 @@ async fn receive_payload(socket: &UdpSocket, timeout: Duration) -> AppResult<Vec
 
     match header {
         SIMPLE_RESPONSE_HEADER => Ok(first_packet[4..].to_vec()),
-        SPLIT_RESPONSE_HEADER => receive_split_payload(socket, first_packet, timeout).await,
+        SPLIT_RESPONSE_HEADER => {
+            log::debug!("A2S split response received");
+            receive_split_payload(socket, first_packet, timeout).await
+        }
         value => Err(AppError::UpstreamUnavailable(format!(
             "A2S response had unsupported header {value}"
         ))),
@@ -690,6 +842,11 @@ async fn receive_split_payload(
                 "A2S split response changed packet count".to_string(),
             ));
         }
+        log::trace!(
+            "A2S split response part received: part={}/{}",
+            part.number + 1,
+            total
+        );
         insert_split_part(&mut parts, part)?;
     }
 
