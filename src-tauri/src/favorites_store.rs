@@ -246,6 +246,7 @@ pub async fn move_favorites_to_group(
     }
 
     ensure_group_exists(pool, &group_id).await?;
+    reject_move_address_conflicts(pool, &unique_ids, &group_id).await?;
 
     let mut tx = pool.begin().await.map_err(database_error)?;
     let now = format_time(Utc::now());
@@ -281,6 +282,43 @@ pub async fn move_favorites_to_group(
     );
 
     favorites_by_ids(pool, &unique_ids).await
+}
+
+async fn reject_move_address_conflicts(
+    pool: &SqlitePool,
+    ids: &[String],
+    group_id: &str,
+) -> AppResult<()> {
+    for id in ids {
+        let row: Option<(String,)> = sqlx::query_as("SELECT address FROM favorites WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .map_err(database_error)?;
+        let Some((address,)) = row else {
+            continue;
+        };
+
+        let conflict: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM favorites
+             WHERE group_id = ? AND address = ? AND id != ?",
+        )
+        .bind(group_id)
+        .bind(&address)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(database_error)?;
+
+        if conflict.is_some() {
+            return Err(AppError::Unexpected(format!(
+                "target favorite group already contains '{}'",
+                address
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn delete_favorite(pool: &SqlitePool, id: String) -> AppResult<()> {

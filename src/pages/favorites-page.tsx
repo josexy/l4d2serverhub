@@ -115,7 +115,7 @@ const MIN_COLUMN_WIDTHS: FavoriteColumnWidths = {
 };
 
 function displayFavoriteName(favorite: Favorite): string {
-  return favorite.lastSnapshot?.name || favorite.customName || favorite.address;
+  return favorite.customName || favorite.lastSnapshot?.name || favorite.address;
 }
 
 function displayFavoriteAddress(favorite: Favorite): string {
@@ -125,6 +125,20 @@ function displayFavoriteAddress(favorite: Favorite): string {
 function favoriteServerId(favorite: Favorite): string | null {
   const serverId = favorite.serverId ?? favorite.lastSnapshot?.serverId ?? "";
   return serverId.trim() || null;
+}
+
+function favoriteAddressKey(address: string): string {
+  const trimmedAddress = address.trim();
+  const portSeparatorIndex = trimmedAddress.lastIndexOf(":");
+
+  if (portSeparatorIndex === -1) {
+    return trimmedAddress.toLowerCase();
+  }
+
+  const host = trimmedAddress.slice(0, portSeparatorIndex).toLowerCase();
+  const portText = trimmedAddress.slice(portSeparatorIndex + 1);
+  const port = Number(portText);
+  return Number.isInteger(port) ? `${host}:${port}` : `${host}:${portText}`;
 }
 
 async function resolveFavoriteSnapshot(
@@ -507,6 +521,16 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       ),
     [currentFavorites],
   );
+  const favoriteAddressKeys = useMemo(
+    () =>
+      new Set(
+        favorites.map(
+          (favorite) =>
+            `${favorite.groupId}\u0000${favoriteAddressKey(favorite.address)}`,
+        ),
+      ),
+    [favorites],
+  );
   const displayedFavorites = useMemo(() => {
     if (favoriteQueryResult) {
       return favoriteQueryResult.items
@@ -793,6 +817,72 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     setEditorOpen(true);
   };
 
+  const refreshCreatedFavoriteSnapshot = async (favorite: Favorite) => {
+    setRefreshingFavoriteIds((current) => new Set(current).add(favorite.id));
+    setFavoriteRefreshErrors((current) => {
+      const next = new Map(current);
+      next.delete(favorite.id);
+      return next;
+    });
+
+    try {
+      const snapshot =
+        settings.serverDetailsQueryMode === "a2sUdp"
+          ? (
+              await api.querySavedServerSnapshots({
+                targets: [favoriteSnapshotTarget(favorite)],
+                page: 1,
+                pageSize: 1,
+              })
+            ).snapshots.find((server) => server.address === favorite.address)
+          : (
+              await api.getServerDetails({
+                address: favorite.address,
+                serverId: favoriteServerId(favorite),
+                fallbackName: favorite.customName,
+              })
+            ).snapshot;
+
+      if (!snapshot) {
+        throw new Error(messages.serverDetail.snapshotUnavailable);
+      }
+
+      if (snapshot.lastQueryError) {
+        throw new Error(snapshot.lastQueryError);
+      }
+
+      const updatedFavorite = await api.updateFavoriteSnapshot(
+        favorite.id,
+        snapshot,
+      );
+      setFavorites((current) =>
+        current.map((item) =>
+          item.id === updatedFavorite.id ? updatedFavorite : item,
+        ),
+      );
+      setFavoriteQueryResult((current) =>
+        pageResultWithSnapshot(current, snapshot),
+      );
+    } catch (refreshError) {
+      const message = formatCommandError(
+        refreshError,
+        messages.serverDetail.snapshotUnavailable,
+      );
+      setFavoriteRefreshErrors((current) => {
+        const next = new Map(current);
+        next.set(favorite.id, message);
+        return next;
+      });
+      toast.error(message);
+    } finally {
+      setRefreshingFavoriteIds((current) => {
+        const next = new Set(current);
+        next.delete(favorite.id);
+        return next;
+      });
+    }
+  };
+
   const handleFavoriteSubmit = async (input: FavoriteInput) => {
     if (savingFavoriteRef.current) {
       return;
@@ -806,12 +896,24 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         ...input,
         groupId: input.groupId || DEFAULT_GROUP_ID,
       };
+      const normalizedGroupId = normalizedInput.groupId || DEFAULT_GROUP_ID;
+      if (
+        !editingFavorite &&
+        favoriteAddressKeys.has(
+          `${normalizedGroupId}\u0000${favoriteAddressKey(normalizedInput.address)}`,
+        )
+      ) {
+        toast.info(messages.favorites.toasts.alreadyFavorite);
+        return;
+      }
+
       const saved = editingFavorite
         ? await api.updateFavorite(editingFavorite.id, normalizedInput)
         : await api.addFavorite(normalizedInput);
+      const wasEditingFavorite = editingFavorite !== null;
 
       setFavorites((current) =>
-        editingFavorite
+        wasEditingFavorite
           ? current.map((favorite) =>
               favorite.id === saved.id ? saved : favorite,
             )
@@ -821,7 +923,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       setSelectedGroupId(saved.groupId || DEFAULT_GROUP_ID);
       setEditorOpen(false);
       setEditingFavorite(null);
-      toast.success(messages.favorites.toasts.saved(editingFavorite !== null));
+      toast.success(messages.favorites.toasts.saved(wasEditingFavorite));
+      if (!wasEditingFavorite) {
+        void refreshCreatedFavoriteSnapshot(saved);
+      }
     } catch (saveError) {
       const message = formatCommandError(
         saveError,
@@ -952,6 +1057,24 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       !targetGroupId ||
       ids.some((id) => movingFavoriteIdsRef.current.has(id))
     ) {
+      return;
+    }
+
+    const selectedIds = new Set(ids);
+    const selectedAddressKeys = new Set(
+      favorites
+        .filter((favorite) => selectedIds.has(favorite.id))
+        .map((favorite) => favoriteAddressKey(favorite.address)),
+    );
+    const targetGroupAlreadyHasSelectedAddress = favorites.some(
+      (favorite) =>
+        favorite.groupId === targetGroupId &&
+        !selectedIds.has(favorite.id) &&
+        selectedAddressKeys.has(favoriteAddressKey(favorite.address)),
+    );
+
+    if (targetGroupAlreadyHasSelectedAddress) {
+      toast.info(messages.favorites.toasts.moveDuplicateAddress);
       return;
     }
 
@@ -1240,17 +1363,32 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const handleFavoriteServerUpdate = (server: ServerSnapshot) => {
     setSelectedServer(server);
     const favoriteId = selectedDetailFavoriteIdRef.current;
+    const updatedIds = new Set<string>();
     setFavorites((current) =>
-      current.map((favorite) =>
-        favorite.id === favoriteId || favorite.address === server.address
-          ? {
-              ...favorite,
-              serverId: server.serverId ?? favorite.serverId,
-              lastSnapshot: server,
-            }
-          : favorite,
-      ),
+      current.map((favorite) => {
+        if (favorite.id === favoriteId || favorite.address === server.address) {
+          updatedIds.add(favorite.id);
+          return {
+            ...favorite,
+            serverId: server.serverId ?? favorite.serverId,
+            lastSnapshot: server,
+          };
+        }
+
+        return favorite;
+      }),
     );
+    setFavoriteQueryResult((current) => pageResultWithSnapshot(current, server));
+    setFavoriteRefreshErrors((current) => {
+      const next = new Map(current);
+      updatedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    setRefreshingFavoriteIds((current) => {
+      const next = new Set(current);
+      updatedIds.forEach((id) => next.delete(id));
+      return next;
+    });
 
     if (favoriteId) {
       void api
@@ -1518,7 +1656,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
           </Button>
           <Button type="button" size="sm" onClick={openCreateDialog}>
             <Plus data-icon="inline-start" />
-            {messages.favorites.actions.addFavorite}
+            {messages.favorites.actions.addCustomServer}
           </Button>
           <div className="page-meta">
             {messages.favorites.savedLabel(favorites.length)}

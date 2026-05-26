@@ -585,13 +585,18 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       sortState,
     ],
   );
-  const favoriteAddresses = useMemo(
-    () => new Set(favorites.map((favorite) => favorite.address)),
-    [favorites],
-  );
   const defaultGroupId =
     groups.find((group) => group.id === FALLBACK_GROUP_ID)?.id ??
     FALLBACK_GROUP_ID;
+  const favoriteAddresses = useMemo(
+    () =>
+      new Set(
+        favorites
+          .filter((favorite) => favorite.groupId === defaultGroupId)
+          .map((favorite) => favorite.address),
+      ),
+    [defaultGroupId, favorites],
+  );
   const currentRowKeys = useMemo(
     () => new Set(sortedDisplayedRows.map((row) => row.key)),
     [sortedDisplayedRows],
@@ -1068,7 +1073,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
 
   const handleToggleFavoriteFromDetails = async (server: ServerSnapshot) => {
     const existingFavorite = favorites.find(
-      (favorite) => favorite.address === server.address,
+      (favorite) =>
+        favorite.groupId === defaultGroupId && favorite.address === server.address,
     );
 
     if (pendingFavoriteAddressRef.current === server.address) {
@@ -1250,7 +1256,21 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       return;
     }
 
+    const rowKey = selectedDetailKeyRef.current;
     updateRecordsWithSnapshot(recordIds, server);
+    setHistoryQueryResult((current) => pageResultWithSnapshot(current, server));
+    if (rowKey) {
+      setHistoryRefreshErrors((current) => {
+        const next = new Map(current);
+        next.delete(rowKey);
+        return next;
+      });
+      setRefreshingHistoryKeys((current) => {
+        const next = new Set(current);
+        next.delete(rowKey);
+        return next;
+      });
+    }
     void persistRecordsWithSnapshot(recordIds, server).catch(() => {
       toast.error(messages.history.toasts.snapshotSaveFailed);
     });

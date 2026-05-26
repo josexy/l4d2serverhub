@@ -441,7 +441,7 @@ async fn import_rejects_inconsistent_history_snapshot_before_replacing_data() {
 }
 
 #[tokio::test]
-async fn import_rejects_duplicate_favorite_address_before_replacing_data() {
+async fn import_rejects_duplicate_favorite_address_in_same_group_before_replacing_data() {
     let pool = memory_pool().await;
     let (existing_group, existing_favorite) = seed_existing_data(&pool).await;
 
@@ -461,6 +461,41 @@ async fn import_rejects_duplicate_favorite_address_before_replacing_data() {
 
     assert!(matches!(result, Err(AppError::ImportInvalid(_))));
     assert_existing_data_unchanged(&pool, &existing_group, &existing_favorite).await;
+}
+
+#[tokio::test]
+async fn import_allows_duplicate_favorite_address_in_different_groups() {
+    let pool = memory_pool().await;
+    let duplicate_address = "127.0.0.1:27017";
+    let other_group = FavoriteGroup {
+        id: "other".to_string(),
+        name: "Other".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    let payload = BackupPayload {
+        version: 1,
+        settings: AppSettings::default(),
+        groups: vec![default_group(), other_group.clone()],
+        favorites: vec![
+            favorite("first", duplicate_address, "default"),
+            favorite("second", duplicate_address, &other_group.id),
+        ],
+        history: Vec::new(),
+    };
+
+    import_data(&pool, payload).await.unwrap();
+
+    let favorites = l4d2_server_hub_lib::favorites_store::list_favorites(&pool)
+        .await
+        .unwrap();
+    assert_eq!(favorites.len(), 2);
+    assert!(favorites
+        .iter()
+        .any(|favorite| favorite.address == duplicate_address && favorite.group_id == "default"));
+    assert!(favorites.iter().any(
+        |favorite| favorite.address == duplicate_address && favorite.group_id == other_group.id
+    ));
 }
 
 #[tokio::test]

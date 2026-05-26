@@ -502,8 +502,10 @@ pub struct SearchHistoryRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    #[serde(default = "default_query_timeout_ms")]
-    pub query_timeout_ms: u64,
+    #[serde(default = "default_http_timeout_ms", alias = "queryTimeoutMs")]
+    pub http_timeout_ms: u64,
+    #[serde(default = "default_a2s_timeout_ms")]
+    pub a2s_timeout_ms: u64,
     #[serde(default)]
     pub server_details_query_mode: ServerDetailsQueryMode,
     #[serde(default)]
@@ -521,7 +523,8 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            query_timeout_ms: default_query_timeout_ms(),
+            http_timeout_ms: default_http_timeout_ms(),
+            a2s_timeout_ms: default_a2s_timeout_ms(),
             server_details_query_mode: ServerDetailsQueryMode::default(),
             theme: ThemePreference::default(),
             language: LanguagePreference::default(),
@@ -534,12 +537,28 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn validate(&self) -> Result<(), String> {
+        validate_timeout("HTTP timeout", self.http_timeout_ms)?;
+        validate_timeout("A2S UDP timeout", self.a2s_timeout_ms)?;
         self.http_proxy.validate()
     }
 }
 
-fn default_query_timeout_ms() -> u64 {
+fn default_http_timeout_ms() -> u64 {
     10000
+}
+
+fn default_a2s_timeout_ms() -> u64 {
+    500
+}
+
+fn validate_timeout(label: &str, value: u64) -> Result<(), String> {
+    if (250..=30000).contains(&value) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{label} must be between 250 and 30000 milliseconds"
+        ))
+    }
 }
 
 fn default_connection_count() -> u32 {
@@ -940,6 +959,35 @@ mod tests {
 
         assert!(!settings.logging.enabled);
         assert!(matches!(settings.logging.level, LogLevel::Info));
+    }
+
+    #[test]
+    fn default_settings_use_split_timeout_defaults() {
+        let settings = AppSettings::default();
+
+        assert_eq!(settings.http_timeout_ms, 10000);
+        assert_eq!(settings.a2s_timeout_ms, 500);
+    }
+
+    #[test]
+    fn settings_deserialization_maps_legacy_query_timeout_to_http_timeout() {
+        let value = json!({
+            "queryTimeoutMs": 2500,
+            "serverDetailsQueryMode": "a2sUdp",
+            "theme": "dark",
+            "language": "system",
+            "httpProxy": {
+                "mode": "system",
+                "customUrl": ""
+            },
+            "serverBrowser": ServerBrowserSettings::default(),
+            "logging": LoggingSettings::default(),
+        });
+
+        let settings = serde_json::from_value::<AppSettings>(value).unwrap();
+
+        assert_eq!(settings.http_timeout_ms, 2500);
+        assert_eq!(settings.a2s_timeout_ms, 500);
     }
 
     #[test]

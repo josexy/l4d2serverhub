@@ -44,7 +44,8 @@ import type {
 } from "@/lib/types";
 
 type SettingsDraft = {
-  queryTimeoutMs: string;
+  httpTimeoutMs: string;
+  a2sTimeoutMs: string;
   serverDetailsQueryMode: ServerDetailsQueryMode;
   proxyMode: HttpProxyMode;
   customProxyUrl: string;
@@ -54,7 +55,7 @@ type SettingsDraft = {
   loggingLevel: LogLevel;
 };
 
-type NumericDraftKey = "queryTimeoutMs";
+type NumericDraftKey = "httpTimeoutMs" | "a2sTimeoutMs";
 type SettingsDraftKey = keyof SettingsDraft;
 
 type SettingsValidation = {
@@ -66,12 +67,14 @@ const NUMERIC_RULES: Record<
   NumericDraftKey,
   { min: number; max: number }
 > = {
-  queryTimeoutMs: { min: 250, max: 30000 },
+  httpTimeoutMs: { min: 250, max: 30000 },
+  a2sTimeoutMs: { min: 250, max: 30000 },
 };
 
 function draftFromSettings(settings: AppSettings): SettingsDraft {
   return {
-    queryTimeoutMs: String(settings.queryTimeoutMs),
+    httpTimeoutMs: String(settings.httpTimeoutMs),
+    a2sTimeoutMs: String(settings.a2sTimeoutMs),
     serverDetailsQueryMode: settings.serverDetailsQueryMode,
     proxyMode: settings.httpProxy.mode,
     customProxyUrl: settings.httpProxy.customUrl,
@@ -119,7 +122,8 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     settings.language,
     settings.httpProxy.customUrl,
     settings.httpProxy.mode,
-    settings.queryTimeoutMs,
+    settings.httpTimeoutMs,
+    settings.a2sTimeoutMs,
     settings.serverDetailsQueryMode,
     settings.theme,
     settings.logging.enabled,
@@ -131,8 +135,10 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     const parsedValues = {} as Record<NumericDraftKey, number>;
     const numberLabel = (key: NumericDraftKey) => {
       switch (key) {
-        case "queryTimeoutMs":
-          return messages.settings.labels.queryTimeout;
+        case "httpTimeoutMs":
+          return messages.settings.labels.httpTimeout;
+        case "a2sTimeoutMs":
+          return messages.settings.labels.a2sTimeout;
       }
     };
 
@@ -208,7 +214,8 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
       errors,
       settings: {
         ...settings,
-        queryTimeoutMs: parsedValues.queryTimeoutMs,
+        httpTimeoutMs: parsedValues.httpTimeoutMs,
+        a2sTimeoutMs: parsedValues.a2sTimeoutMs,
         serverDetailsQueryMode: draft.serverDetailsQueryMode,
         httpProxy: {
           mode: draft.proxyMode,
@@ -488,26 +495,51 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
             ) : (
               <form className="grid gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
                 <div>
-                  <label htmlFor="query-timeout" className="text-sm font-medium text-foreground">
-                    {messages.settings.labels.queryTimeout}
+                  <label htmlFor="http-timeout" className="text-sm font-medium text-foreground">
+                    {messages.settings.labels.httpTimeout}
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    {messages.settings.labels.queryTimeoutDescription}
+                    {messages.settings.labels.httpTimeoutDescription}
                   </p>
                 </div>
                 <div className="flex flex-col gap-1">
                   <Input
-                    id="query-timeout"
+                    id="http-timeout"
                     className="w-56"
                     type="number"
-                    min={NUMERIC_RULES.queryTimeoutMs.min}
-                    max={NUMERIC_RULES.queryTimeoutMs.max}
-                    value={draft.queryTimeoutMs}
-                    onChange={(event) => updateDraft("queryTimeoutMs", event.target.value)}
+                    min={NUMERIC_RULES.httpTimeoutMs.min}
+                    max={NUMERIC_RULES.httpTimeoutMs.max}
+                    value={draft.httpTimeoutMs}
+                    onChange={(event) => updateDraft("httpTimeoutMs", event.target.value)}
                   />
-                  {validation.errors.queryTimeoutMs ? (
+                  {validation.errors.httpTimeoutMs ? (
                     <p className="text-xs text-destructive" role="alert">
-                      {validation.errors.queryTimeoutMs}
+                      {validation.errors.httpTimeoutMs}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label htmlFor="a2s-timeout" className="text-sm font-medium text-foreground">
+                    {messages.settings.labels.a2sTimeout}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {messages.settings.labels.a2sTimeoutDescription}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Input
+                    id="a2s-timeout"
+                    className="w-56"
+                    type="number"
+                    min={NUMERIC_RULES.a2sTimeoutMs.min}
+                    max={NUMERIC_RULES.a2sTimeoutMs.max}
+                    value={draft.a2sTimeoutMs}
+                    onChange={(event) => updateDraft("a2sTimeoutMs", event.target.value)}
+                  />
+                  {validation.errors.a2sTimeoutMs ? (
+                    <p className="text-xs text-destructive" role="alert">
+                      {validation.errors.a2sTimeoutMs}
                     </p>
                   ) : null}
                 </div>

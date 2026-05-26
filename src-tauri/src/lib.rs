@@ -123,7 +123,7 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         )",
         "CREATE TABLE IF NOT EXISTS favorites (
             id TEXT PRIMARY KEY NOT NULL,
-            address TEXT NOT NULL UNIQUE,
+            address TEXT NOT NULL,
             server_id TEXT,
             group_id TEXT NOT NULL,
             custom_name TEXT,
@@ -149,6 +149,8 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         )",
         "CREATE INDEX IF NOT EXISTS idx_history_connected_at
             ON history_records(connected_at DESC)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_favorites_group_address
+            ON favorites(group_id, address)",
         "CREATE TABLE IF NOT EXISTS search_history (
             id TEXT PRIMARY KEY NOT NULL,
             query TEXT NOT NULL UNIQUE,
@@ -577,7 +579,7 @@ pub async fn refresh_startup_upstream_config_if_stale(
     );
 
     let startup_config_result = upstream_api::HttpUpstreamServerClient::startup_config(
-        std::time::Duration::from_millis(settings.query_timeout_ms),
+        std::time::Duration::from_millis(settings.http_timeout_ms),
         &settings.http_proxy,
     )
     .await;

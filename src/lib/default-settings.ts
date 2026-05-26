@@ -1,7 +1,8 @@
 import { createDefaultFilters } from "@/lib/filters";
 
 export const DEFAULT_APP_SETTINGS = {
-  queryTimeoutMs: 10000,
+  httpTimeoutMs: 10000,
+  a2sTimeoutMs: 500,
   serverDetailsQueryMode: "a2sUdp",
   theme: "dark",
   language: "system",

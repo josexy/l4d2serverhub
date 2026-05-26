@@ -241,6 +241,10 @@ export function ServerDetailPanel({
         messages.serverDetail.snapshotUnavailable,
       );
       setError(message);
+      onUpdateServer({
+        ...server,
+        lastQueryError: message,
+      });
       if (showToast) {
         toast.error(message);
       }

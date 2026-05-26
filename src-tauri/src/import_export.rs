@@ -187,14 +187,16 @@ fn validate_duplicate_keys(payload: &BackupPayload) -> AppResult<()> {
     }
 
     let mut favorite_ids = HashSet::new();
-    let mut favorite_addresses = HashSet::new();
+    let mut favorite_group_addresses = HashSet::new();
     for favorite in &payload.favorites {
         validate_unique_value(&mut favorite_ids, &favorite.id, "favorite id")?;
-        validate_unique_value(
-            &mut favorite_addresses,
-            &favorite.address,
-            "favorite address",
-        )?;
+        let favorite_group_address = (favorite.group_id.clone(), favorite.address.clone());
+        if !favorite_group_addresses.insert(favorite_group_address) {
+            return Err(AppError::ImportInvalid(format!(
+                "duplicate favorite address '{}' in group '{}'",
+                favorite.address, favorite.group_id
+            )));
+        }
     }
 
     let mut history_ids = HashSet::new();
@@ -240,9 +242,16 @@ where
     require_object_fields_with_allowed::<D::Error>(
         &value,
         "settings",
-        &["queryTimeoutMs", "theme", "language", "serverBrowser"],
         &[
-            "queryTimeoutMs",
+            "httpTimeoutMs",
+            "a2sTimeoutMs",
+            "theme",
+            "language",
+            "serverBrowser",
+        ],
+        &[
+            "httpTimeoutMs",
+            "a2sTimeoutMs",
             "serverDetailsQueryMode",
             "theme",
             "language",

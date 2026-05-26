@@ -46,6 +46,14 @@ function favoriteInputFor(server: ServerSnapshot, groupId: string): FavoriteInpu
   };
 }
 
+function defaultFavoriteByAddress(favorites: Favorite[]): Map<string, Favorite> {
+  return new Map(
+    favorites
+      .filter((favorite) => favorite.groupId === DEFAULT_GROUP_ID)
+      .map((favorite) => [favorite.address, favorite]),
+  );
+}
+
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -229,12 +237,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
         }
 
         setFavoriteByAddress(
-          new Map(
-            favorites.map((favorite) => [
-              favorite.address,
-              favorite,
-            ]),
-          ),
+          defaultFavoriteByAddress(favorites),
         );
         favoritesWarningShownRef.current = false;
       } catch {
@@ -330,14 +333,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
             favoritesWarningShownRef.current = true;
           }
         } else {
-          setFavoriteByAddress(
-            new Map(
-              favoritesResult.favorites.map((favorite) => [
-                favorite.address,
-                favorite,
-              ]),
-            ),
-          );
+          setFavoriteByAddress(defaultFavoriteByAddress(favoritesResult.favorites));
           favoritesWarningShownRef.current = false;
         }
       } catch (queryError) {

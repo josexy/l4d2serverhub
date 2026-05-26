@@ -219,6 +219,7 @@ export const en = {
     neverConnected: "Never",
     toasts: {
       loadFailed: "Could not load favorites.",
+      alreadyFavorite: "That server is already in favorites.",
       saved: (editing: boolean): string =>
         editing ? "Favorite updated." : "Favorite created.",
       saveFailed: "Could not save the favorite.",
@@ -230,6 +231,8 @@ export const en = {
       deleteFailed: "Could not delete the favorite.",
       movedMany: (count: number) => `${count} favorites moved.`,
       moveFailed: "Could not move the selected favorites.",
+      moveDuplicateAddress:
+        "The target group already contains one or more selected servers.",
       groupDeleted: "Group deleted.",
       groupDeleteFailed: "Could not delete the group.",
       connectStarted: (address: string) => `Launching ${address}`,
@@ -237,6 +240,7 @@ export const en = {
     },
     actions: {
       addFavorite: "Add favorite",
+      addCustomServer: "Server",
       createGroup: "Create group",
       showGroups: "Show groups",
       hideGroups: "Hide groups",
@@ -318,8 +322,10 @@ export const en = {
       customProxyUrl: "http://127.0.0.1:7890",
     },
     labels: {
-      queryTimeout: "Query timeout",
-      queryTimeoutDescription: "Milliseconds allowed for HTTP and A2S UDP requests.",
+      httpTimeout: "HTTP timeout",
+      httpTimeoutDescription: "Milliseconds allowed for upstream HTTP requests.",
+      a2sTimeout: "A2S UDP timeout",
+      a2sTimeoutDescription: "Milliseconds allowed for direct A2S UDP requests.",
       detailsQueryMode: "Details query method",
       detailsQueryModeDescription:
         "A2S UDP is faster for server details and does not use the HTTP proxy.",

@@ -221,6 +221,7 @@ export const zhCn: Messages = {
     neverConnected: "从未连接",
     toasts: {
       loadFailed: "无法加载收藏。",
+      alreadyFavorite: "这个服务器已经在收藏里了。",
       saved: (editing: boolean): string => (editing ? "收藏已更新。" : "收藏已创建。"),
       saveFailed: "无法保存收藏。",
       enterGroupName: "请先输入分组名称。",
@@ -231,6 +232,7 @@ export const zhCn: Messages = {
       deleteFailed: "无法删除收藏。",
       movedMany: (count: number) => `已移动 ${count} 条收藏。`,
       moveFailed: "无法移动所选收藏。",
+      moveDuplicateAddress: "目标分组已包含一个或多个所选服务器。",
       groupDeleted: "分组已删除。",
       groupDeleteFailed: "无法删除分组。",
       connectStarted: (address: string) => `正在启动连接：${address}`,
@@ -238,6 +240,7 @@ export const zhCn: Messages = {
     },
     actions: {
       addFavorite: "添加收藏",
+      addCustomServer: "服务器",
       createGroup: "创建分组",
       showGroups: "显示分组",
       hideGroups: "隐藏分组",
@@ -319,8 +322,10 @@ export const zhCn: Messages = {
       customProxyUrl: "http://127.0.0.1:7890",
     },
     labels: {
-      queryTimeout: "查询超时",
-      queryTimeoutDescription: "HTTP 和 A2S UDP 请求允许使用的毫秒数。",
+      httpTimeout: "HTTP 超时",
+      httpTimeoutDescription: "上游 HTTP 请求允许使用的毫秒数。",
+      a2sTimeout: "A2S UDP 超时",
+      a2sTimeoutDescription: "直接 A2S UDP 请求允许使用的毫秒数。",
       detailsQueryMode: "详情查询方式",
       detailsQueryModeDescription:
         "A2S UDP 查询服务器详情更快，且不使用 HTTP 代理。",

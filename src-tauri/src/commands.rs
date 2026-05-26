@@ -338,7 +338,7 @@ async fn query_servers_impl(
     );
     let client = upstream_client_cache
         .get_or_create(
-            Duration::from_millis(settings.query_timeout_ms),
+            Duration::from_millis(settings.http_timeout_ms),
             upstream_config_value,
             &settings.http_proxy,
         )
@@ -361,7 +361,7 @@ async fn query_servers_impl(
         .await;
         let refreshed_client = upstream_client_cache
             .get_or_create(
-                Duration::from_millis(settings.query_timeout_ms),
+                Duration::from_millis(settings.http_timeout_ms),
                 refreshed_config,
                 &settings.http_proxy,
             )
@@ -455,7 +455,7 @@ async fn get_server_details_impl(
             address,
             server_id,
             fallback_name,
-            Duration::from_millis(settings.query_timeout_ms),
+            Duration::from_millis(settings.a2s_timeout_ms),
         )
         .await;
     }
@@ -463,7 +463,7 @@ async fn get_server_details_impl(
     let upstream_config_value = upstream_config_for_request(upstream_config).await;
     let client = upstream_client_cache
         .get_or_create(
-            Duration::from_millis(settings.query_timeout_ms),
+            Duration::from_millis(settings.http_timeout_ms),
             upstream_config_value,
             &settings.http_proxy,
         )
@@ -481,7 +481,7 @@ async fn get_server_details_impl(
         .await;
         let refreshed_client = upstream_client_cache
             .get_or_create(
-                Duration::from_millis(settings.query_timeout_ms),
+                Duration::from_millis(settings.http_timeout_ms),
                 refreshed_config,
                 &settings.http_proxy,
             )
@@ -600,7 +600,7 @@ async fn query_saved_server_snapshots_impl(
         });
     crate::a2s_query::query_saved_server_snapshots(
         params,
-        Duration::from_millis(settings.query_timeout_ms),
+        Duration::from_millis(settings.a2s_timeout_ms),
         crate::a2s_query::DEFAULT_BATCH_CONCURRENCY,
         on_progress,
     )

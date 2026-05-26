@@ -111,7 +111,8 @@ export interface SearchHistoryRecord {
 }
 
 export interface AppSettings {
-  queryTimeoutMs: number;
+  httpTimeoutMs: number;
+  a2sTimeoutMs: number;
   serverDetailsQueryMode: ServerDetailsQueryMode;
   theme: ThemePreference;
   language: LanguagePreference;
