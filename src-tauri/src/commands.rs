@@ -6,7 +6,7 @@ use crate::models::{
 };
 use crate::upstream_api::{UpstreamApiConfig, UpstreamClientCache, UpstreamServerClient};
 use crate::{favorites_store, history_store, import_export, search_history_store, settings_store};
-use crate::{steam_launcher, SharedState};
+use crate::{steam_launcher, system_tray, SharedState};
 use sqlx::SqlitePool;
 use std::{cmp::Reverse, path::Path, sync::Arc, time::Duration};
 use tauri::{AppHandle, State};
@@ -237,12 +237,13 @@ pub async fn get_settings(state: State<'_, SharedState>) -> CommandResult<AppSet
 
 #[tauri::command]
 pub async fn update_settings(
+    app: AppHandle,
     state: State<'_, SharedState>,
     settings: AppSettings,
 ) -> CommandResult<AppSettings> {
     command_result(
         "update_settings",
-        update_settings_impl(&state.pool, &state.log_state, settings).await,
+        update_settings_with_tray_update(&app, &state.pool, &state.log_state, settings).await,
     )
 }
 
@@ -261,12 +262,13 @@ pub async fn write_export_file(path: String, contents: String) -> CommandResult<
 
 #[tauri::command]
 pub async fn import_data(
+    app: AppHandle,
     state: State<'_, SharedState>,
     payload: BackupPayload,
 ) -> CommandResult<BackupPayload> {
     command_result(
         "import_data",
-        import_data_impl(&state.pool, &state.log_state, payload).await,
+        import_data_with_tray_update(&app, &state.pool, &state.log_state, payload).await,
     )
 }
 
@@ -515,6 +517,19 @@ async fn get_settings_impl(pool: &SqlitePool) -> AppResult<AppSettings> {
     settings_store::get_settings(pool).await
 }
 
+async fn update_settings_with_tray_update(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    log_state: &crate::logging::LogState,
+    settings: AppSettings,
+) -> AppResult<AppSettings> {
+    let saved = update_settings_impl(pool, log_state, settings).await?;
+    system_tray::apply_tray_language(app, &saved.language).map_err(|err| {
+        crate::errors::AppError::Unexpected(format!("failed to update system tray language: {err}"))
+    })?;
+    Ok(saved)
+}
+
 async fn update_settings_impl(
     pool: &SqlitePool,
     log_state: &crate::logging::LogState,
@@ -528,6 +543,19 @@ async fn update_settings_impl(
         saved.logging.level
     );
     Ok(saved)
+}
+
+async fn import_data_with_tray_update(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    log_state: &crate::logging::LogState,
+    payload: BackupPayload,
+) -> AppResult<BackupPayload> {
+    let imported = import_data_impl(pool, log_state, payload).await?;
+    system_tray::apply_tray_language(app, &imported.settings.language).map_err(|err| {
+        crate::errors::AppError::Unexpected(format!("failed to update system tray language: {err}"))
+    })?;
+    Ok(imported)
 }
 
 async fn import_data_impl(

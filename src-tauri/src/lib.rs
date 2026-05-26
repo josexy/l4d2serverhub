@@ -9,6 +9,7 @@ pub mod models;
 pub mod search_history_store;
 pub mod settings_store;
 pub mod steam_launcher;
+pub mod system_tray;
 pub mod upstream_api;
 
 use chrono::Utc;
@@ -198,19 +199,22 @@ pub fn run() {
                         database_path.display()
                     ))
                 })?;
-            match tauri::async_runtime::block_on(settings_store::get_settings(&pool)) {
-                Ok(settings) => {
-                    log_state.apply_settings(&settings.logging);
-                    log::info!(
-                        "applied persisted logging settings: enabled={}, level={:?}",
-                        settings.logging.enabled,
-                        settings.logging.level
-                    );
-                }
-                Err(err) => {
-                    log::warn!("failed to read logging settings during startup: {err}");
-                }
-            }
+            let startup_settings =
+                match tauri::async_runtime::block_on(settings_store::get_settings(&pool)) {
+                    Ok(settings) => {
+                        log_state.apply_settings(&settings.logging);
+                        log::info!(
+                            "applied persisted logging settings: enabled={}, level={:?}",
+                            settings.logging.enabled,
+                            settings.logging.level
+                        );
+                        settings
+                    }
+                    Err(err) => {
+                        log::warn!("failed to read logging settings during startup: {err}");
+                        models::AppSettings::default()
+                    }
+                };
             log::info!("starting L4D2 Server Hub");
             log::info!(
                 "using application database at '{}'",
@@ -225,6 +229,8 @@ pub fn run() {
             } else {
                 log::debug!("configured main window startup layout");
             }
+            system_tray::setup_system_tray(app, &startup_settings)?;
+            system_tray::register_close_to_tray(&main_window);
             let startup_window = main_window.clone();
             app.listen("l4d2://frontend-ready", move |_| {
                 if let Err(err) = startup_window.show() {
