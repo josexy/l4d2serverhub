@@ -412,6 +412,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [renameGroup, setRenameGroup] = useState<FavoriteGroup | null>(null);
+  const [renameGroupName, setRenameGroupName] = useState("");
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [deleteFavorite, setDeleteFavorite] = useState<Favorite | null>(null);
   const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
   const [moveSelectionOpen, setMoveSelectionOpen] = useState(false);
@@ -463,6 +466,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     useState<FavoriteResizableColumnId | null>(null);
   const savingFavoriteRef = useRef(false);
   const creatingGroupRef = useRef(false);
+  const renamingGroupIdRef = useRef<string | null>(null);
   const movingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const deletingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const deletingGroupIdRef = useRef<string | null>(null);
@@ -953,6 +957,69 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     } finally {
       creatingGroupRef.current = false;
       setCreatingGroup(false);
+    }
+  };
+
+  const openRenameGroupDialog = (group: FavoriteGroup) => {
+    setRenameGroup(group);
+    setRenameGroupName(displayGroupName(group));
+  };
+
+  const closeRenameGroupDialog = () => {
+    if (renamingGroupIdRef.current !== null) {
+      return;
+    }
+
+    setRenameGroup(null);
+    setRenameGroupName("");
+  };
+
+  const handleRenameGroup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (
+      !renameGroup ||
+      renameGroup.id === DEFAULT_GROUP_ID ||
+      renamingGroupIdRef.current !== null
+    ) {
+      return;
+    }
+
+    const trimmedName = renameGroupName.trim();
+    if (!trimmedName) {
+      toast.error(messages.favorites.toasts.enterGroupName);
+      return;
+    }
+
+    if (trimmedName === renameGroup.name) {
+      closeRenameGroupDialog();
+      return;
+    }
+
+    renamingGroupIdRef.current = renameGroup.id;
+    setRenamingGroupId(renameGroup.id);
+    try {
+      const updatedGroup = await api.updateGroup(renameGroup.id, trimmedName);
+      setGroups((current) =>
+        normalizeGroups(
+          current.map((group) =>
+            group.id === updatedGroup.id ? updatedGroup : group,
+          ),
+          fallbackDefaultGroup,
+        ),
+      );
+      setRenameGroup(null);
+      setRenameGroupName("");
+      toast.success(messages.favorites.toasts.groupRenamed);
+    } catch (renameError) {
+      const message = formatCommandError(
+        renameError,
+        messages.favorites.toasts.groupRenameFailed,
+      );
+      toast.error(message);
+    } finally {
+      renamingGroupIdRef.current = null;
+      setRenamingGroupId(null);
     }
   };
 
@@ -1773,16 +1840,32 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                     </>
                   ) : null}
                   {selectedGroup.id !== DEFAULT_GROUP_ID ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={deletingGroupId !== null}
-                      onClick={() => setDeleteGroup(selectedGroup)}
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      {messages.favorites.actions.deleteCurrentGroup}
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          renamingGroupId !== null || deletingGroupId !== null
+                        }
+                        onClick={() => openRenameGroupDialog(selectedGroup)}
+                      >
+                        <Edit data-icon="inline-start" />
+                        {messages.favorites.actions.renameCurrentGroup}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          renamingGroupId !== null || deletingGroupId !== null
+                        }
+                        onClick={() => setDeleteGroup(selectedGroup)}
+                      >
+                        <Trash2 data-icon="inline-start" />
+                        {messages.favorites.actions.deleteCurrentGroup}
+                      </Button>
+                    </>
                   ) : null}
                 </div>
               </div>
@@ -2324,6 +2407,55 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                 : messages.favorites.actions.moveToGroup}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isActive && renameGroup !== null}
+        onOpenChange={(open) => !open && closeRenameGroupDialog()}
+      >
+        <DialogContent>
+          <form className="flex flex-col gap-4" onSubmit={handleRenameGroup}>
+            <DialogHeader>
+              <DialogTitle>{messages.favorites.renameGroupDialogTitle}</DialogTitle>
+              <DialogDescription>
+                {renameGroup
+                  ? messages.favorites.renameGroupDialogDescription(
+                      displayGroupName(renameGroup),
+                    )
+                  : messages.favorites.renameGroupDialogFallback}
+              </DialogDescription>
+            </DialogHeader>
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              {messages.favorites.groupNameLabel}
+              <Input
+                value={renameGroupName}
+                placeholder={messages.favorites.groupNamePlaceholder}
+                disabled={renamingGroupId !== null}
+                onChange={(event) => setRenameGroupName(event.target.value)}
+              />
+            </label>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={renamingGroupId !== null}
+                onClick={closeRenameGroupDialog}
+              >
+                {messages.common.cancel}
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  renamingGroupId !== null ||
+                  renameGroup === null ||
+                  renameGroup.id === DEFAULT_GROUP_ID
+                }
+              >
+                {renamingGroupId ? messages.common.saving : messages.common.save}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
