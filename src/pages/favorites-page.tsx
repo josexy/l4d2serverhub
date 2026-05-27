@@ -514,13 +514,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     visibleGroups[0] ??
     fallbackDefaultGroup;
   const currentFavorites = favoritesByGroup.get(selectedGroup.id) ?? [];
-  const favoriteByAddress = useMemo(
-    () =>
-      new Map(
-        currentFavorites.map((favorite) => [favorite.address, favorite] as const),
-      ),
-    [currentFavorites],
-  );
   const favoriteAddressKeys = useMemo(
     () =>
       new Set(
@@ -531,26 +524,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       ),
     [favorites],
   );
-  const displayedFavorites = useMemo(() => {
-    if (favoriteQueryResult) {
-      return favoriteQueryResult.items
-        .map((server) => favoriteByAddress.get(server.address))
-        .filter((favorite): favorite is Favorite => favorite !== undefined);
-    }
-
-    const start = (favoritePage - 1) * favoritePageSize;
-    return currentFavorites.slice(start, start + favoritePageSize);
-  }, [
-    currentFavorites,
-    favoriteByAddress,
-    favoritePage,
-    favoritePageSize,
-    favoriteQueryResult,
-  ]);
-  const sortedDisplayedFavorites = useMemo(
+  const sortedCurrentFavorites = useMemo(
     () =>
       sortCurrentPage(
-        displayedFavorites,
+        currentFavorites,
         sortState,
         (favorite, column): SortValue => {
           const snapshot = favorite.lastSnapshot;
@@ -590,7 +567,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         },
       ),
     [
-      displayedFavorites,
+      currentFavorites,
       favoriteRefreshErrors,
       loadingDetailFavoriteId,
       messages.common.refreshing,
@@ -600,6 +577,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       sortState,
     ],
   );
+  const sortedDisplayedFavorites = useMemo(() => {
+    const start = (favoritePage - 1) * favoritePageSize;
+    return sortedCurrentFavorites.slice(start, start + favoritePageSize);
+  }, [favoritePage, favoritePageSize, sortedCurrentFavorites]);
   const currentFavoriteIds = useMemo(
     () => new Set(sortedDisplayedFavorites.map((favorite) => favorite.id)),
     [sortedDisplayedFavorites],
@@ -617,7 +598,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     : selectedCurrentCount > 0
       ? "indeterminate"
       : false;
-  const favoriteTotal = favoriteQueryResult?.total ?? currentFavorites.length;
+  const favoriteTotal = currentFavorites.length;
   const favoriteTotalPages = Math.max(
     1,
     Math.ceil(favoriteTotal / Math.max(favoritePageSize, 1)),

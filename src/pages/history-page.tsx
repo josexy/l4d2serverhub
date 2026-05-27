@@ -523,23 +523,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   } | null>(null);
 
   const rows = useMemo(() => dedupeHistoryRows(history), [history]);
-  const rowByAddress = useMemo(
-    () => new Map(rows.map((row) => [row.address, row] as const)),
-    [rows],
-  );
-  const displayedRows = useMemo(() => {
-    if (historyQueryResult) {
-      return historyQueryResult.items
-        .map((server) => rowByAddress.get(server.address))
-        .filter((row): row is HistoryServerRow => row !== undefined);
-    }
-
-    const start = (historyPage - 1) * historyPageSize;
-    return rows.slice(start, start + historyPageSize);
-  }, [historyPage, historyPageSize, historyQueryResult, rowByAddress, rows]);
-  const sortedDisplayedRows = useMemo(
+  const sortedRows = useMemo(
     () =>
-      sortCurrentPage(displayedRows, sortState, (row, column): SortValue => {
+      sortCurrentPage(rows, sortState, (row, column): SortValue => {
         switch (column) {
           case "server":
             return row.name;
@@ -575,16 +561,20 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
         }
       }),
     [
-      displayedRows,
       historyRefreshErrors,
       loadingDetailKey,
       messages.common.refreshing,
       messages.serverDetail.modeLabels,
       messages.serverTable.statuses,
       refreshingHistoryKeys,
+      rows,
       sortState,
     ],
   );
+  const sortedDisplayedRows = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return sortedRows.slice(start, start + historyPageSize);
+  }, [historyPage, historyPageSize, sortedRows]);
   const defaultGroupId =
     groups.find((group) => group.id === FALLBACK_GROUP_ID)?.id ??
     FALLBACK_GROUP_ID;
@@ -613,7 +603,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     : selectedCurrentCount > 0
       ? "indeterminate"
       : false;
-  const historyTotal = historyQueryResult?.total ?? rows.length;
+  const historyTotal = rows.length;
   const historyTotalPages = Math.max(
     1,
     Math.ceil(historyTotal / Math.max(historyPageSize, 1)),
