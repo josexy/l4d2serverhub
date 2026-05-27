@@ -1,0 +1,271 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        type: string
+      draft:
+        description: "Create the release as a draft"
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: "Mark the release as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+
+jobs:
+  build-release:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-2022
+            platform: windows
+          - name: macOS universal
+            os: macos-14
+            platform: macos
+          - name: Linux x64
+            os: ubuntu-22.04
+            platform: linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            rpm \
+            wget
+
+      - name: Add macOS targets
+        if: matrix.platform == 'macos'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows bundles
+        if: matrix.platform == 'windows'
+        run: npm run tauri build -- --bundles msi --ci
+
+      - name: Build macOS bundles
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg --ci
+
+      - name: Build Linux bundles
+        if: matrix.platform == 'linux'
+        run: npm run tauri build -- --bundles appimage,deb,rpm --ci
+
+      - name: Prepare Windows assets
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $assetPrefix = "L4D2-Server-Hub-$env:RELEASE_TAG-Windows-x64"
+          $assetDir = "release-assets"
+          $portableDir = Join-Path $assetDir "portable"
+
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi" -Recurse -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) {
+            throw "MSI bundle was not generated."
+          }
+          Copy-Item $msi.FullName (Join-Path $assetDir "$assetPrefix.msi")
+
+          $exe = Get-ChildItem "src-tauri/target/release" -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) {
+            throw "Portable executable was not generated."
+          }
+          Copy-Item $exe.FullName (Join-Path $portableDir $exe.Name)
+
+          if (Test-Path "LICENSE") {
+            Copy-Item "LICENSE" (Join-Path $portableDir "LICENSE")
+          }
+
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $assetDir "$assetPrefix-Portable.zip") -Force
+          Remove-Item -LiteralPath $portableDir -Recurse -Force
+
+          Get-ChildItem $assetDir -File | ForEach-Object {
+            Write-Host "Prepared asset: $($_.Name)"
+          }
+
+      - name: Prepare macOS assets
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          asset_prefix="L4D2-Server-Hub-${RELEASE_TAG}-macOS-universal"
+          asset_dir="release-assets"
+          macos_bundle_dir="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          dmg_bundle_dir="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+
+          mkdir -p "$asset_dir"
+
+          app_path=$(find "$macos_bundle_dir" -maxdepth 1 -name "*.app" -type d | head -1 || true)
+          if [ -z "$app_path" ]; then
+            echo "macOS .app bundle was not generated." >&2
+            exit 1
+          fi
+
+          dmg_path=$(find "$dmg_bundle_dir" -maxdepth 1 -name "*.dmg" -type f | head -1 || true)
+          if [ -z "$dmg_path" ]; then
+            echo "macOS DMG bundle was not generated." >&2
+            exit 1
+          fi
+
+          cp "$dmg_path" "$asset_dir/$asset_prefix.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$asset_dir/$asset_prefix.zip"
+
+          find "$asset_dir" -maxdepth 1 -type f -print
+
+      - name: Prepare Linux assets
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          asset_prefix="L4D2-Server-Hub-${RELEASE_TAG}-Linux-x64"
+          asset_dir="release-assets"
+          bundle_dir="src-tauri/target/release/bundle"
+
+          mkdir -p "$asset_dir"
+
+          appimage=$(find "$bundle_dir" -name "*.AppImage" -type f | head -1 || true)
+          if [ -z "$appimage" ]; then
+            echo "Linux AppImage bundle was not generated." >&2
+            exit 1
+          fi
+          cp "$appimage" "$asset_dir/$asset_prefix.AppImage"
+
+          deb=$(find "$bundle_dir" -name "*.deb" -type f | head -1 || true)
+          if [ -z "$deb" ]; then
+            echo "Linux deb bundle was not generated." >&2
+            exit 1
+          fi
+          cp "$deb" "$asset_dir/$asset_prefix.deb"
+
+          rpm=$(find "$bundle_dir" -name "*.rpm" -type f | head -1 || true)
+          if [ -z "$rpm" ]; then
+            echo "Linux rpm bundle was not generated." >&2
+            exit 1
+          fi
+          cp "$rpm" "$asset_dir/$asset_prefix.rpm"
+
+          find "$asset_dir" -maxdepth 1 -type f -print
+
+      - name: Upload release assets to workflow
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: List generated bundles
+        if: always()
+        shell: bash
+        run: |
+          find src-tauri/target -maxdepth 5 -type f 2>/dev/null || true
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs: build-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download built release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-assets-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: List downloaded release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la release-assets
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          name: L4D2 Server Hub ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          body: |
+            ## L4D2 Server Hub ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+
+            Cross-platform desktop release assets:
+
+            - Windows: MSI installer and portable zip
+            - macOS: universal DMG and app zip
+            - Linux x64: AppImage, deb, and rpm
+
+            macOS builds are ad-hoc signed and are not notarized.
+          files: release-assets/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
