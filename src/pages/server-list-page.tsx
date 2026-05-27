@@ -46,12 +46,17 @@ function favoriteInputFor(server: ServerSnapshot, groupId: string): FavoriteInpu
   };
 }
 
-function defaultFavoriteByAddress(favorites: Favorite[]): Map<string, Favorite> {
-  return new Map(
-    favorites
-      .filter((favorite) => favorite.groupId === DEFAULT_GROUP_ID)
-      .map((favorite) => [favorite.address, favorite]),
-  );
+function favoritesByAddress(favorites: Favorite[]): Map<string, Favorite> {
+  const byAddress = new Map<string, Favorite>();
+
+  for (const favorite of favorites) {
+    const existing = byAddress.get(favorite.address);
+    if (!existing || favorite.groupId === DEFAULT_GROUP_ID) {
+      byAddress.set(favorite.address, favorite);
+    }
+  }
+
+  return byAddress;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -236,9 +241,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
           return;
         }
 
-        setFavoriteByAddress(
-          defaultFavoriteByAddress(favorites),
-        );
+        setFavoriteByAddress(favoritesByAddress(favorites));
         favoritesWarningShownRef.current = false;
       } catch {
         if (isCurrent && !favoritesWarningShownRef.current) {
@@ -333,7 +336,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
             favoritesWarningShownRef.current = true;
           }
         } else {
-          setFavoriteByAddress(defaultFavoriteByAddress(favoritesResult.favorites));
+          setFavoriteByAddress(favoritesByAddress(favoritesResult.favorites));
           favoritesWarningShownRef.current = false;
         }
       } catch (queryError) {
@@ -488,11 +491,8 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
       try {
         if (existingFavorite) {
           await api.deleteFavorite(existingFavorite.id);
-          setFavoriteByAddress((current) => {
-            const next = new Map(current);
-            next.delete(server.address);
-            return next;
-          });
+          const favorites = await api.listFavorites();
+          setFavoriteByAddress(favoritesByAddress(favorites));
           toast.success(messages.serverList.toasts.favoriteRemoved);
           return;
         }
