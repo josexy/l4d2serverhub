@@ -486,7 +486,9 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
   );
 
   const handleServerUpdate = useCallback((server: ServerSnapshot) => {
-    setSelectedServer(server);
+    setSelectedServer((current) =>
+      current?.address === server.address ? server : current,
+    );
     setQueryResult((current) =>
       current
         ? {
@@ -498,6 +500,22 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
         : current,
     );
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const listenForSnapshotUpdates = async () => {
+      unlisten = await api.listenServerSnapshotUpdated(({ snapshot }) => {
+        handleServerUpdate(snapshot);
+      });
+    };
+
+    void listenForSnapshotUpdates();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [handleServerUpdate]);
 
   const toggleFavorite = useCallback(
     async (server: ServerSnapshot) => {

@@ -440,6 +440,18 @@ export const zhCn: Messages = {
     snapshotSection: "快照",
     playersSection: "玩家",
     noPlayers: "当前没有可用的玩家数据。",
+    autoRetry: {
+      label: "自动重试",
+      options: {
+        none: "无",
+        remind: "提醒",
+        autoJoin: "自动加入",
+      },
+      toasts: {
+        remind: (name: string) => `${name} 当前有可用空位。`,
+        autoJoin: (name: string) => `检测到空位，正在自动连接 ${name}。`,
+      },
+    },
     placeholderPlayerName: (index: number) => `玩家${index}`,
     noTags: "无标签",
     pingUnknown: "未知",

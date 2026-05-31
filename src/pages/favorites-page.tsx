@@ -475,6 +475,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const selectedDetailFavoriteIdRef = useRef<string | null>(null);
   const refreshRunIdRef = useRef(0);
   const refreshingDetailsRef = useRef(false);
+  const favoritesRef = useRef<Favorite[]>([]);
   const activeSidebarResizeRef = useRef<{
     startX: number;
     startWidth: number;
@@ -519,6 +520,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     visibleGroups[0] ??
     fallbackDefaultGroup;
   const currentFavorites = favoritesByGroup.get(selectedGroup.id) ?? [];
+
+  useEffect(() => {
+    favoritesRef.current = favorites;
+  }, [favorites]);
   const favoriteAddressKeys = useMemo(
     () =>
       new Set(
@@ -1409,51 +1414,83 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     }
   };
 
+  const applyFavoriteSnapshotLocally = useCallback(
+    (server: ServerSnapshot) => {
+      const updatedIds = favoritesRef.current
+        .filter((favorite) => favorite.address === server.address)
+        .map((favorite) => favorite.id);
+
+      setSelectedServer((current) =>
+        current?.address === server.address ? server : current,
+      );
+      setFavorites((current) =>
+        current.map((favorite) =>
+          favorite.address === server.address
+            ? {
+                ...favorite,
+                serverId: server.serverId ?? favorite.serverId,
+                lastSnapshot: server,
+              }
+            : favorite,
+        ),
+      );
+      setFavoriteQueryResult((current) => pageResultWithSnapshot(current, server));
+      if (updatedIds.length === 0) {
+        return updatedIds;
+      }
+
+      setFavoriteRefreshErrors((current) => {
+        const next = new Map(current);
+        updatedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      setRefreshingFavoriteIds((current) => {
+        const next = new Set(current);
+        updatedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+
+      return updatedIds;
+    },
+    [],
+  );
+
   const handleFavoriteServerUpdate = (server: ServerSnapshot) => {
-    setSelectedServer(server);
+    const updatedIds = applyFavoriteSnapshotLocally(server);
     const favoriteId = selectedDetailFavoriteIdRef.current;
-    const updatedIds = new Set<string>();
-    setFavorites((current) =>
-      current.map((favorite) => {
-        if (favorite.id === favoriteId || favorite.address === server.address) {
-          updatedIds.add(favorite.id);
-          return {
-            ...favorite,
-            serverId: server.serverId ?? favorite.serverId,
-            lastSnapshot: server,
-          };
-        }
-
-        return favorite;
-      }),
-    );
-    setFavoriteQueryResult((current) => pageResultWithSnapshot(current, server));
-    setFavoriteRefreshErrors((current) => {
-      const next = new Map(current);
-      updatedIds.forEach((id) => next.delete(id));
-      return next;
-    });
-    setRefreshingFavoriteIds((current) => {
-      const next = new Set(current);
-      updatedIds.forEach((id) => next.delete(id));
-      return next;
-    });
-
-    if (favoriteId) {
-      void api
-        .updateFavoriteSnapshot(favoriteId, server)
-        .then((updatedFavorite) => {
-          setFavorites((current) =>
-            current.map((favorite) =>
-              favorite.id === updatedFavorite.id ? updatedFavorite : favorite,
-            ),
-          );
-        })
-        .catch(() => {
-          toast.error(messages.favorites.toasts.saveFailed);
-        });
+    if (!favoriteId || !updatedIds.includes(favoriteId)) {
+      return;
     }
+
+    void api
+      .updateFavoriteSnapshot(favoriteId, server)
+      .then((updatedFavorite) => {
+        setFavorites((current) =>
+          current.map((favorite) =>
+            favorite.id === updatedFavorite.id ? updatedFavorite : favorite,
+          ),
+        );
+      })
+      .catch(() => {
+        toast.error(messages.favorites.toasts.saveFailed);
+      });
   };
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const listenForSnapshotUpdates = async () => {
+      unlisten = await api.listenServerSnapshotUpdated(({ snapshot }) => {
+        applyFavoriteSnapshotLocally(snapshot);
+      });
+    };
+
+    void listenForSnapshotUpdates();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [applyFavoriteSnapshotLocally]);
 
   const openFavoriteDetails = async (favorite: Favorite) => {
     if (!favorite.address.trim()) {
@@ -2240,8 +2277,8 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         open={isActive && detailOpen}
         server={selectedServer}
         onOpenChange={handleDetailOpenChange}
-        onConnect={(server) => void handleConnectServer(server)}
-        onToggleFavorite={(server) => void handleToggleFavoriteFromDetails(server)}
+        onConnect={handleConnectServer}
+        onToggleFavorite={handleToggleFavoriteFromDetails}
         onUpdateServer={handleFavoriteServerUpdate}
         connectPending={
           selectedServer !== null && pendingConnectAddress === selectedServer.address

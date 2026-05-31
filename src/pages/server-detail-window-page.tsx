@@ -181,6 +181,7 @@ export function ServerDetailWindowPage() {
 
   const handleUpdateServer = (nextServer: ServerSnapshot) => {
     setServer(nextServer);
+    void api.emitServerSnapshotUpdated(nextServer);
 
     if (!payload || persistingSnapshotRef.current) {
       return;
@@ -221,8 +222,8 @@ export function ServerDetailWindowPage() {
         active={true}
         variant="window"
         server={server}
-        onConnect={(nextServer) => void handleConnect(nextServer)}
-        onToggleFavorite={(nextServer) => void handleToggleFavorite(nextServer)}
+        onConnect={handleConnect}
+        onToggleFavorite={handleToggleFavorite}
         onUpdateServer={handleUpdateServer}
         connectPending={connectPending}
         favoritePending={favoritePending}

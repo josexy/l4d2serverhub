@@ -1,9 +1,18 @@
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useRef, useState } from "react";
 import { Copy, ExternalLink, RefreshCw, Star, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -16,7 +25,15 @@ import { useI18n } from "@/lib/app-preferences";
 import { api, formatCommandError } from "@/lib/api";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
 import { cn } from "@/lib/utils";
-import type { ServerDetails, ServerPlayer, ServerSnapshot } from "@/lib/types";
+import type {
+  AutoRetryMode,
+  ServerDetails,
+  ServerPlayer,
+  ServerSnapshot,
+} from "@/lib/types";
+
+const DETAIL_REFRESH_INTERVAL_MS = 10_000;
+const AUTO_RETRY_MODES: AutoRetryMode[] = ["none", "remind", "autoJoin"];
 
 type ServerDetailPanelProps = {
   open: boolean;
@@ -169,6 +186,21 @@ function createPlaceholderPlayers(
   }));
 }
 
+function hasAvailablePlayerSlot(details: ServerDetails): boolean {
+  return (
+    details.snapshot.maxPlayers > 0 &&
+    !details.snapshot.lastQueryError &&
+    details.players.length < details.snapshot.maxPlayers
+  );
+}
+
+async function focusCurrentWindow() {
+  const currentWindow = getCurrentWebviewWindow();
+  await currentWindow.show();
+  await currentWindow.unminimize();
+  await currentWindow.setFocus();
+}
+
 export function ServerDetailContent({
   active,
   variant = "window",
@@ -183,46 +215,104 @@ export function ServerDetailContent({
   const { messages } = useI18n();
   const activeAddressRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
-  const [details, setDetails] = useState<ServerDetails | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const autoRetryModeRef = useRef<AutoRetryMode>("none");
+  const refreshDetailsRef = useRef<
+    (options: { showToast: boolean; checkAutoRetry: boolean }) => Promise<void>
+  >(async () => {});
+  const runAutoRetryRef = useRef<
+    (details: ServerDetails, mode?: AutoRetryMode) => Promise<void>
+  >(async () => {});
+  const [rawDetails, setRawDetails] = useState<ServerDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoRetryMode, setAutoRetryMode] = useState<AutoRetryMode>("none");
+
+  useEffect(() => {
+    autoRetryModeRef.current = autoRetryMode;
+  }, [autoRetryMode]);
 
   useEffect(() => {
     activeAddressRef.current = active ? server?.address ?? null : null;
     requestIdRef.current += 1;
-    setDetails(null);
+    refreshInFlightRef.current = false;
+    autoRetryModeRef.current = "none";
+    setRawDetails(null);
     setLoading(false);
     setError(null);
+    setAutoRetryMode("none");
   }, [active, server?.address]);
 
-  const snapshot = details?.snapshot ?? server;
+  const snapshot = rawDetails?.snapshot ?? server;
   const { metadataLabels, playerColumns } = messages.serverDetail;
-  const players =
-    details && details.players.length === 0 && details.snapshot.players > 0
+  const displayPlayers =
+    rawDetails && rawDetails.players.length === 0 && rawDetails.snapshot.players > 0
       ? createPlaceholderPlayers(
-          details.snapshot.players,
+          rawDetails.snapshot.players,
           messages.serverDetail.placeholderPlayerName,
         )
-      : details?.players ?? [];
+      : rawDetails?.players ?? [];
 
-  const loadDetails = async (showToast: boolean) => {
+  const runAutoRetry = async (
+    details: ServerDetails,
+    mode = autoRetryModeRef.current,
+  ) => {
+    if (mode === "none" || !hasAvailablePlayerSlot(details)) {
+      return;
+    }
+
+    const serverLabel = details.snapshot.name.trim() || details.snapshot.address;
+    if (mode === "remind") {
+      try {
+        await focusCurrentWindow();
+      } catch {
+        // Ignore focus failures and still surface the reminder.
+      }
+      toast.info(messages.serverDetail.autoRetry.toasts.remind(serverLabel));
+      return;
+    }
+
+    if (connectPending) {
+      return;
+    }
+
+    autoRetryModeRef.current = "none";
+    setAutoRetryMode("none");
+    toast.info(messages.serverDetail.autoRetry.toasts.autoJoin(serverLabel));
+    await Promise.resolve(onConnect(details.snapshot));
+  };
+  runAutoRetryRef.current = runAutoRetry;
+
+  const refreshDetails = async ({
+    showToast,
+    checkAutoRetry,
+  }: {
+    showToast: boolean;
+    checkAutoRetry: boolean;
+  }) => {
     if (!active || !server?.address) {
       setError(messages.serverDetail.snapshotUnavailable);
       return;
     }
 
+    if (refreshInFlightRef.current) {
+      return;
+    }
+
     const requestAddress = server.address;
+    const requestServer = server;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     activeAddressRef.current = requestAddress;
+    refreshInFlightRef.current = true;
     setLoading(true);
     setError(null);
 
     try {
       const nextDetails = await api.getServerDetails({
         address: requestAddress,
-        serverId: server.serverId,
-        fallbackName: server.name,
+        serverId: requestServer.serverId,
+        fallbackName: requestServer.name,
       });
 
       if (
@@ -232,8 +322,12 @@ export function ServerDetailContent({
         return;
       }
 
-      setDetails(nextDetails);
+      setRawDetails(nextDetails);
       onUpdateServer(nextDetails.snapshot);
+
+      if (checkAutoRetry) {
+        await runAutoRetryRef.current(nextDetails);
+      }
     } catch (loadError) {
       if (
         activeAddressRef.current !== requestAddress ||
@@ -248,13 +342,14 @@ export function ServerDetailContent({
       );
       setError(message);
       onUpdateServer({
-        ...server,
+        ...requestServer,
         lastQueryError: message,
       });
       if (showToast) {
         toast.error(message);
       }
     } finally {
+      refreshInFlightRef.current = false;
       if (
         activeAddressRef.current === requestAddress &&
         requestIdRef.current === requestId
@@ -263,14 +358,44 @@ export function ServerDetailContent({
       }
     }
   };
+  refreshDetailsRef.current = refreshDetails;
 
   useEffect(() => {
     if (!active || !server?.address) {
       return;
     }
 
-    void loadDetails(false);
+    void refreshDetailsRef.current({
+      showToast: false,
+      checkAutoRetry: true,
+    });
+    const intervalId = window.setInterval(() => {
+      void refreshDetailsRef.current({
+        showToast: false,
+        checkAutoRetry: true,
+      });
+    }, DETAIL_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
   }, [active, server?.address]);
+
+  const handleAutoRetryModeChange = (nextMode: AutoRetryMode) => {
+    autoRetryModeRef.current = nextMode;
+    setAutoRetryMode(nextMode);
+    if (nextMode !== "none" && rawDetails) {
+      void runAutoRetryRef.current(rawDetails, nextMode);
+    }
+  };
+
+  const handleConnect = () => {
+    if (!snapshot) {
+      return;
+    }
+
+    autoRetryModeRef.current = "none";
+    setAutoRetryMode("none");
+    void onConnect(snapshot);
+  };
 
   const copyAddress = async () => {
     if (!snapshot) {
@@ -317,156 +442,194 @@ export function ServerDetailContent({
         </header>
       )}
 
-        {snapshot ? (
-          <>
-            <div className="flex shrink-0 flex-wrap gap-2 border-b px-4 pb-4">
-              <Button
-                type="button"
-                size="sm"
-                disabled={connectPending}
-                onClick={() => onConnect(snapshot)}
-              >
-                {connectPending ? (
-                  <RefreshCw data-icon="inline-start" />
-                ) : (
-                  <ExternalLink data-icon="inline-start" />
-                )}
-                {messages.serverDetail.connect}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={favoritePending}
-                onClick={() => onToggleFavorite(snapshot)}
-              >
-                {favoritePending ? (
-                  <RefreshCw data-icon="inline-start" />
-                ) : (
-                  <Star
-                    data-icon="inline-start"
-                    className={cn(isFavorite && "fill-current")}
-                  />
-                )}
-                {isFavorite
-                  ? messages.serverDetail.removeFavorite
-                  : messages.serverDetail.addFavorite}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={copyAddress}
-              >
-                <Copy data-icon="inline-start" />
-                {messages.serverDetail.copyAddress}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={loading || !server?.address}
-                onClick={() => void loadDetails(true)}
-              >
+      {snapshot ? (
+        <>
+          <div className="flex shrink-0 flex-wrap gap-2 border-b px-4 pb-4">
+            <Button
+              type="button"
+              size="sm"
+              disabled={connectPending}
+              onClick={handleConnect}
+            >
+              {connectPending ? (
                 <RefreshCw data-icon="inline-start" />
-                {messages.common.refresh}
-              </Button>
-            </div>
-
-            <ScrollArea className="h-0 min-h-0 flex-1 px-4 py-4">
-              <div className="flex flex-col gap-5 pb-2">
-                <section className="flex flex-col gap-2">
-                  <h3 className="text-sm font-semibold">{messages.serverDetail.snapshotSection}</h3>
-                  <dl className="flex flex-col gap-1.5 rounded-lg border p-3">
-                    <DetailRow label={messages.serverDetail.labels.map} value={snapshot.map || "-"} />
-                    <DetailRow
-                      label={messages.serverDetail.labels.players}
-                      value={`${snapshot.players}/${snapshot.maxPlayers} (${messages.serverDetail.values.bots(snapshot.bots)})`}
-                    />
-                    <DetailRow
-                      label={messages.serverDetail.labels.ping}
-                      value={formatPing(snapshot.pingMs, messages.serverDetail.pingUnknown)}
-                    />
-                    <DetailRow
-                      label={messages.serverDetail.labels.vac}
-                      value={
-                        snapshot.vacSecured
-                          ? messages.serverDetail.values.vacSecured
-                          : messages.serverDetail.values.vacUnsecured
-                      }
-                    />
-                    {snapshot.gameDescription ? (
-                      <DetailRow
-                        label={metadataLabels.game}
-                        value={snapshot.gameDescription}
-                      />
-                    ) : null}
-                    {snapshot.serverType ? (
-                      <DetailRow
-                        label={metadataLabels.serverType}
-                        value={snapshot.serverType}
-                      />
-                    ) : null}
-                    {snapshot.environment ? (
-                      <DetailRow
-                        label={metadataLabels.environment}
-                        value={snapshot.environment}
-                      />
-                    ) : null}
-                    {snapshot.version ? (
-                      <DetailRow
-                        label={metadataLabels.version}
-                        value={snapshot.version}
-                      />
-                    ) : null}
-                  </dl>
-
-                  <ServerModeTags
-                    tags={snapshot.modeTags}
-                    modeLabels={messages.serverDetail.modeLabels}
-                  />
-
-                  {snapshot.lastQueryError ? (
-                    <p className="rounded-lg border border-destructive/40 p-2 text-sm text-destructive">
-                      {snapshot.lastQueryError}
-                    </p>
-                  ) : null}
-                </section>
-
-                <section className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">
-                      {messages.serverDetail.playersSection} ({players.length})
-                    </h3>
-                    {loading ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <RefreshCw className="size-3.5 animate-spin" />
-                        {messages.common.refreshing}
-                      </span>
-                    ) : (
-                      <Users className="size-4 text-muted-foreground" />
-                    )}
-                  </div>
-                  {error ? (
-                    <p className="text-sm text-destructive">{error}</p>
-                  ) : (
-                    <PlayerList
-                      players={players}
-                      emptyLabel={messages.serverDetail.noPlayers}
-                      nameLabel={playerColumns.name}
-                      scoreLabel={playerColumns.score}
-                      durationLabel={playerColumns.duration}
-                    />
-                  )}
-                </section>
-              </div>
-            </ScrollArea>
-          </>
-        ) : (
-          <div className="px-4 text-sm text-muted-foreground">
-            {messages.serverDetail.empty}
+              ) : (
+                <ExternalLink data-icon="inline-start" />
+              )}
+              {messages.serverDetail.connect}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={favoritePending}
+              onClick={() => void onToggleFavorite(snapshot)}
+            >
+              {favoritePending ? (
+                <RefreshCw data-icon="inline-start" />
+              ) : (
+                <Star
+                  data-icon="inline-start"
+                  className={cn(isFavorite && "fill-current")}
+                />
+              )}
+              {isFavorite
+                ? messages.serverDetail.removeFavorite
+                : messages.serverDetail.addFavorite}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={copyAddress}
+            >
+              <Copy data-icon="inline-start" />
+              {messages.serverDetail.copyAddress}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={loading || !server?.address}
+              onClick={() =>
+                void refreshDetailsRef.current({
+                  showToast: true,
+                  checkAutoRetry: true,
+                })
+              }
+            >
+              <RefreshCw data-icon="inline-start" />
+              {messages.common.refresh}
+            </Button>
           </div>
-        )}
+
+          <ScrollArea className="h-0 min-h-0 flex-1 px-4 py-4">
+            <div className="flex flex-col gap-5 pb-2">
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold">
+                  {messages.serverDetail.snapshotSection}
+                </h3>
+                <dl className="flex flex-col gap-1.5 rounded-lg border p-3">
+                  <DetailRow
+                    label={messages.serverDetail.labels.map}
+                    value={snapshot.map || "-"}
+                  />
+                  <DetailRow
+                    label={messages.serverDetail.labels.players}
+                    value={`${snapshot.players}/${snapshot.maxPlayers} (${messages.serverDetail.values.bots(snapshot.bots)})`}
+                  />
+                  <DetailRow
+                    label={messages.serverDetail.labels.ping}
+                    value={formatPing(snapshot.pingMs, messages.serverDetail.pingUnknown)}
+                  />
+                  <DetailRow
+                    label={messages.serverDetail.labels.vac}
+                    value={
+                      snapshot.vacSecured
+                        ? messages.serverDetail.values.vacSecured
+                        : messages.serverDetail.values.vacUnsecured
+                    }
+                  />
+                  {snapshot.gameDescription ? (
+                    <DetailRow
+                      label={metadataLabels.game}
+                      value={snapshot.gameDescription}
+                    />
+                  ) : null}
+                  {snapshot.serverType ? (
+                    <DetailRow
+                      label={metadataLabels.serverType}
+                      value={snapshot.serverType}
+                    />
+                  ) : null}
+                  {snapshot.environment ? (
+                    <DetailRow
+                      label={metadataLabels.environment}
+                      value={snapshot.environment}
+                    />
+                  ) : null}
+                  {snapshot.version ? (
+                    <DetailRow
+                      label={metadataLabels.version}
+                      value={snapshot.version}
+                    />
+                  ) : null}
+                </dl>
+
+                <ServerModeTags
+                  tags={snapshot.modeTags}
+                  modeLabels={messages.serverDetail.modeLabels}
+                />
+
+                {snapshot.lastQueryError ? (
+                  <p className="rounded-lg border border-destructive/40 p-2 text-sm text-destructive">
+                    {snapshot.lastQueryError}
+                  </p>
+                ) : null}
+              </section>
+
+              <section className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">
+                    {messages.serverDetail.playersSection} ({displayPlayers.length})
+                  </h3>
+                  {loading ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <RefreshCw className="size-3.5 animate-spin" />
+                      {messages.common.refreshing}
+                    </span>
+                  ) : (
+                    <Users className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+                {error ? (
+                  <p className="text-sm text-destructive">{error}</p>
+                ) : (
+                  <PlayerList
+                    players={displayPlayers}
+                    emptyLabel={messages.serverDetail.noPlayers}
+                    nameLabel={playerColumns.name}
+                    scoreLabel={playerColumns.score}
+                    durationLabel={playerColumns.duration}
+                  />
+                )}
+              </section>
+            </div>
+          </ScrollArea>
+          <section className="flex shrink-0 items-center justify-between gap-3 border-t bg-background px-4 py-4">
+            <h3 className="text-sm font-semibold">
+              {messages.serverDetail.autoRetry.label}
+            </h3>
+            <Select
+              value={autoRetryMode}
+              onValueChange={(value) =>
+                handleAutoRetryModeChange(value as AutoRetryMode)
+              }
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-36 shrink-0"
+                aria-label={messages.serverDetail.autoRetry.label}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {AUTO_RETRY_MODES.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {messages.serverDetail.autoRetry.options[mode]}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </section>
+        </>
+      ) : (
+        <div className="px-4 text-sm text-muted-foreground">
+          {messages.serverDetail.empty}
+        </div>
+      )}
     </div>
   );
 }

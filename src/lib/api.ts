@@ -13,6 +13,7 @@ import type {
   SavedServerSnapshotQueryParams,
   SavedServerSnapshotQueryResult,
   SearchHistoryRecord,
+  ServerSnapshotUpdatedEvent,
   ServerDetails,
   ServerQueryParams,
   ServerQueryResult,
@@ -21,6 +22,7 @@ import type {
 
 export const HISTORY_UPDATED_EVENT = "l4d2:history-updated";
 export const SETTINGS_UPDATED_EVENT = "l4d2:settings-updated";
+export const SERVER_SNAPSHOT_UPDATED_EVENT = "l4d2:server-snapshot-updated";
 export const SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT =
   "l4d2:saved-server-snapshot-progress";
 
@@ -123,6 +125,19 @@ export const api = {
     await emit(SETTINGS_UPDATED_EVENT, saved);
     return saved;
   },
+  emitServerSnapshotUpdated: (snapshot: ServerSnapshot) =>
+    emit(SERVER_SNAPSHOT_UPDATED_EVENT, {
+      snapshot,
+    } satisfies ServerSnapshotUpdatedEvent),
+  listenServerSnapshotUpdated: (
+    onSnapshotUpdated: (payload: ServerSnapshotUpdatedEvent) => void,
+  ) =>
+    listen<ServerSnapshotUpdatedEvent>(
+      SERVER_SNAPSHOT_UPDATED_EVENT,
+      (event) => {
+        onSnapshotUpdated(event.payload);
+      },
+    ),
   exportData: () => invoke<BackupPayload>("export_data"),
   openLogFolder: () => invoke<void>("open_log_folder"),
   clearLogFiles: () => invoke<number>("clear_log_files"),

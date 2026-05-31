@@ -441,6 +441,18 @@ export const en = {
     snapshotSection: "Snapshot",
     playersSection: "Players",
     noPlayers: "No player data is currently available.",
+    autoRetry: {
+      label: "Auto retry",
+      options: {
+        none: "None",
+        remind: "Remind",
+        autoJoin: "Auto join",
+      },
+      toasts: {
+        remind: (name: string) => `${name} now has an open player slot.`,
+        autoJoin: (name: string) => `Open slot found. Auto-joining ${name}.`,
+      },
+    },
     placeholderPlayerName: (index: number) => `Player ${index}`,
     noTags: "No tags",
     pingUnknown: "Unknown",

@@ -517,6 +517,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const refreshingDetailsRef = useRef(false);
   const selectedDetailKeyRef = useRef<string | null>(null);
   const selectedDetailRecordIdsRef = useRef<string[]>([]);
+  const historyRef = useRef<HistoryRecord[]>([]);
+  const rowsRef = useRef<HistoryServerRow[]>([]);
   const activeColumnResizeRef = useRef<{
     columnId: HistoryResizableColumnId;
     startX: number;
@@ -576,6 +578,14 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     const start = (historyPage - 1) * historyPageSize;
     return sortedRows.slice(start, start + historyPageSize);
   }, [historyPage, historyPageSize, sortedRows]);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
   const defaultGroupId =
     groups.find((group) => group.id === FALLBACK_GROUP_ID)?.id ??
     FALLBACK_GROUP_ID;
@@ -1257,32 +1267,67 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     }
   };
 
-  const handleHistoryServerUpdate = (server: ServerSnapshot) => {
-    setSelectedServer(server);
-    const recordIds = selectedDetailRecordIdsRef.current;
-    if (recordIds.length === 0) {
-      return;
-    }
+  const applyHistorySnapshotLocally = useCallback(
+    (server: ServerSnapshot) => {
+      const updatedRecordIds = historyRef.current
+        .filter((record) => record.address === server.address)
+        .map((record) => record.id);
+      const updatedRowKeys = rowsRef.current
+        .filter((row) => row.address === server.address)
+        .map((row) => row.key);
 
-    const rowKey = selectedDetailKeyRef.current;
-    updateRecordsWithSnapshot(recordIds, server);
-    setHistoryQueryResult((current) => pageResultWithSnapshot(current, server));
-    if (rowKey) {
+      setSelectedServer((current) =>
+        current?.address === server.address ? server : current,
+      );
+      if (updatedRecordIds.length > 0) {
+        updateRecordsWithSnapshot(updatedRecordIds, server);
+      }
+      setHistoryQueryResult((current) => pageResultWithSnapshot(current, server));
+      if (updatedRowKeys.length === 0) {
+        return;
+      }
+
       setHistoryRefreshErrors((current) => {
         const next = new Map(current);
-        next.delete(rowKey);
+        updatedRowKeys.forEach((key) => next.delete(key));
         return next;
       });
       setRefreshingHistoryKeys((current) => {
         const next = new Set(current);
-        next.delete(rowKey);
+        updatedRowKeys.forEach((key) => next.delete(key));
         return next;
       });
+    },
+    [updateRecordsWithSnapshot],
+  );
+
+  const handleHistoryServerUpdate = (server: ServerSnapshot) => {
+    const recordIds = selectedDetailRecordIdsRef.current;
+    applyHistorySnapshotLocally(server);
+    if (recordIds.length === 0) {
+      return;
     }
+
     void persistRecordsWithSnapshot(recordIds, server).catch(() => {
       toast.error(messages.history.toasts.snapshotSaveFailed);
     });
   };
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const listenForSnapshotUpdates = async () => {
+      unlisten = await api.listenServerSnapshotUpdated(({ snapshot }) => {
+        applyHistorySnapshotLocally(snapshot);
+      });
+    };
+
+    void listenForSnapshotUpdates();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [applyHistorySnapshotLocally]);
 
   const toggleSelectAll = (checked: boolean | "indeterminate") => {
     setSelectedHistoryKeys((current) => {
@@ -1739,8 +1784,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
         open={isActive && detailOpen}
         server={selectedServer}
         onOpenChange={handleDetailOpenChange}
-        onConnect={(server) => void handleConnectServer(server)}
-        onToggleFavorite={(server) => void handleToggleFavoriteFromDetails(server)}
+        onConnect={handleConnectServer}
+        onToggleFavorite={handleToggleFavoriteFromDetails}
         onUpdateServer={handleHistoryServerUpdate}
         connectPending={
           selectedServer !== null && pendingConnectAddress === selectedServer.address

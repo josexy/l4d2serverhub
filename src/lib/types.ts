@@ -5,6 +5,7 @@ export type HttpProxyMode = "none" | "system" | "custom";
 export type ServerDetailsQueryMode = "a2sUdp" | "http";
 export type ServerDetailsDisplayMode = "sidePanel" | "window";
 export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+export type AutoRetryMode = "none" | "remind" | "autoJoin";
 export type CommandErrorKind =
   | "networkTimeout"
   | "upstreamUnavailable"
@@ -203,6 +204,10 @@ export interface SavedServerSnapshotProgressEvent {
   page: number;
   pageSize: number;
   refreshedAt: string;
+  snapshot: ServerSnapshot;
+}
+
+export interface ServerSnapshotUpdatedEvent {
   snapshot: ServerSnapshot;
 }
 
