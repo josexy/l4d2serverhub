@@ -40,6 +40,7 @@ import { HISTORY_UPDATED_EVENT, api, formatCommandError } from "@/lib/api";
 import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
+import { openServerDetailWindow } from "@/lib/server-detail-windows";
 import {
   createDefaultSortState,
   nextSortState,
@@ -1195,6 +1196,23 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const openHistoryDetails = async (row: HistoryServerRow) => {
     if (!row.address.trim() && !row.snapshot) {
       toast.error(messages.serverDetail.snapshotUnavailable);
+      return;
+    }
+
+    if (settings.serverDetailsDisplayMode === "window") {
+      await openServerDetailWindow({
+        address: row.address.trim() || row.snapshot?.address || "",
+        serverId: row.serverId ?? row.snapshot?.serverId ?? null,
+        fallbackName: row.name,
+        snapshot: row.snapshot,
+        historyRecordIds: row.records.map((record) => record.id),
+      }).catch((windowError) => {
+        const message = formatCommandError(
+          windowError,
+          messages.serverDetail.snapshotUnavailable,
+        );
+        toast.error(message);
+      });
       return;
     }
 

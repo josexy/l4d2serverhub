@@ -56,6 +56,7 @@ import { api, formatCommandError } from "@/lib/api";
 import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
+import { openServerDetailWindow } from "@/lib/server-detail-windows";
 import {
   createDefaultSortState,
   nextSortState,
@@ -1457,6 +1458,23 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const openFavoriteDetails = async (favorite: Favorite) => {
     if (!favorite.address.trim()) {
       toast.error(messages.serverDetail.snapshotUnavailable);
+      return;
+    }
+
+    if (settings.serverDetailsDisplayMode === "window") {
+      await openServerDetailWindow({
+        address: favorite.address,
+        serverId: favoriteServerId(favorite),
+        fallbackName: favorite.customName,
+        snapshot: favorite.lastSnapshot,
+        favoriteId: favorite.id,
+      }).catch((windowError) => {
+        const message = formatCommandError(
+          windowError,
+          messages.serverDetail.snapshotUnavailable,
+        );
+        toast.error(message);
+      });
       return;
     }
 

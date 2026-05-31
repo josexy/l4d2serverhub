@@ -4,6 +4,7 @@ export const DEFAULT_APP_SETTINGS = {
   httpTimeoutMs: 10000,
   a2sTimeoutMs: 500,
   serverDetailsQueryMode: "a2sUdp",
+  serverDetailsDisplayMode: "sidePanel",
   theme: "dark",
   language: "system",
   httpProxy: {

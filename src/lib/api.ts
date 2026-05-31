@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import type {
   AppSettings,
   BackupPayload,
@@ -20,6 +20,7 @@ import type {
 } from "./types";
 
 export const HISTORY_UPDATED_EVENT = "l4d2:history-updated";
+export const SETTINGS_UPDATED_EVENT = "l4d2:settings-updated";
 export const SAVED_SERVER_SNAPSHOT_PROGRESS_EVENT =
   "l4d2:saved-server-snapshot-progress";
 
@@ -117,8 +118,11 @@ export const api = {
   deleteSearchHistory: (id: string) =>
     invoke<void>("delete_search_history", { id }),
   getSettings: () => invoke<AppSettings>("get_settings"),
-  updateSettings: (settings: AppSettings) =>
-    invoke<AppSettings>("update_settings", { settings }),
+  updateSettings: async (settings: AppSettings) => {
+    const saved = await invoke<AppSettings>("update_settings", { settings });
+    await emit(SETTINGS_UPDATED_EVENT, saved);
+    return saved;
+  },
   exportData: () => invoke<BackupPayload>("export_data"),
   openLogFolder: () => invoke<void>("open_log_folder"),
   clearLogFiles: () => invoke<number>("clear_log_files"),

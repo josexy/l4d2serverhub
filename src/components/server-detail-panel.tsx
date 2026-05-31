@@ -22,6 +22,12 @@ type ServerDetailPanelProps = {
   open: boolean;
   server: ServerSnapshot | null;
   onOpenChange: (open: boolean) => void;
+} & Omit<ServerDetailContentProps, "active" | "variant" | "server">;
+
+export type ServerDetailContentProps = {
+  active: boolean;
+  variant?: "sheet" | "window";
+  server: ServerSnapshot | null;
   onConnect: (server: ServerSnapshot) => Promise<void> | void;
   onToggleFavorite: (server: ServerSnapshot) => Promise<void> | void;
   onUpdateServer: (server: ServerSnapshot) => void;
@@ -163,17 +169,17 @@ function createPlaceholderPlayers(
   }));
 }
 
-export function ServerDetailPanel({
-  open,
+export function ServerDetailContent({
+  active,
+  variant = "window",
   server,
-  onOpenChange,
   onConnect,
   onToggleFavorite,
   onUpdateServer,
   connectPending,
   favoritePending,
   isFavorite,
-}: ServerDetailPanelProps) {
+}: ServerDetailContentProps) {
   const { messages } = useI18n();
   const activeAddressRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
@@ -182,12 +188,12 @@ export function ServerDetailPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    activeAddressRef.current = open ? server?.address ?? null : null;
+    activeAddressRef.current = active ? server?.address ?? null : null;
     requestIdRef.current += 1;
     setDetails(null);
     setLoading(false);
     setError(null);
-  }, [open, server?.address]);
+  }, [active, server?.address]);
 
   const snapshot = details?.snapshot ?? server;
   const { metadataLabels, playerColumns } = messages.serverDetail;
@@ -200,7 +206,7 @@ export function ServerDetailPanel({
       : details?.players ?? [];
 
   const loadDetails = async (showToast: boolean) => {
-    if (!open || !server?.address) {
+    if (!active || !server?.address) {
       setError(messages.serverDetail.snapshotUnavailable);
       return;
     }
@@ -259,12 +265,12 @@ export function ServerDetailPanel({
   };
 
   useEffect(() => {
-    if (!open || !server?.address) {
+    if (!active || !server?.address) {
       return;
     }
 
     void loadDetails(false);
-  }, [open, server?.address]);
+  }, [active, server?.address]);
 
   const copyAddress = async () => {
     if (!snapshot) {
@@ -290,8 +296,8 @@ export function ServerDetailPanel({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[560px] gap-0 overflow-hidden sm:max-w-[560px]">
+    <div className="flex h-full min-h-0 flex-col">
+      {variant === "sheet" ? (
         <SheetHeader className="shrink-0 pr-12">
           <SheetTitle className="truncate">
             {snapshot?.name ?? messages.serverDetail.titleFallback}
@@ -300,6 +306,16 @@ export function ServerDetailPanel({
             {snapshot ? snapshot.address : messages.serverDetail.descriptionFallback}
           </SheetDescription>
         </SheetHeader>
+      ) : (
+        <header className="flex shrink-0 flex-col gap-1 px-4 py-4">
+          <h1 className="truncate text-base font-semibold text-foreground">
+            {snapshot?.name ?? messages.serverDetail.titleFallback}
+          </h1>
+          <p className="truncate text-sm text-muted-foreground">
+            {snapshot ? snapshot.address : messages.serverDetail.descriptionFallback}
+          </p>
+        </header>
+      )}
 
         {snapshot ? (
           <>
@@ -451,6 +467,35 @@ export function ServerDetailPanel({
             {messages.serverDetail.empty}
           </div>
         )}
+    </div>
+  );
+}
+
+export function ServerDetailPanel({
+  open,
+  server,
+  onOpenChange,
+  onConnect,
+  onToggleFavorite,
+  onUpdateServer,
+  connectPending,
+  favoritePending,
+  isFavorite,
+}: ServerDetailPanelProps) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-[560px] gap-0 overflow-hidden sm:max-w-[560px]">
+        <ServerDetailContent
+          active={open}
+          variant="sheet"
+          server={server}
+          onConnect={onConnect}
+          onToggleFavorite={onToggleFavorite}
+          onUpdateServer={onUpdateServer}
+          connectPending={connectPending}
+          favoritePending={favoritePending}
+          isFavorite={isFavorite}
+        />
       </SheetContent>
     </Sheet>
   );
