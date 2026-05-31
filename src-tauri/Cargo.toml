@@ -1,6 +1,6 @@
 [package]
 name = "l4d2-server-hub"
-version = "1.0.0"
+version = "1.0.1"
 description = "L4D2 Server Hub desktop server browser"
 authors = ["josexy"]
 license = "MIT"

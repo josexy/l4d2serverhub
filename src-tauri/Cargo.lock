@@ -2208,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "l4d2-server-hub"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "chrono",
