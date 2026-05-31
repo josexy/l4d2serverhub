@@ -509,6 +509,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub server_details_query_mode: ServerDetailsQueryMode,
     #[serde(default)]
+    pub server_details_display_mode: ServerDetailsDisplayMode,
+    #[serde(default)]
     pub theme: ThemePreference,
     #[serde(default)]
     pub language: LanguagePreference,
@@ -526,6 +528,7 @@ impl Default for AppSettings {
             http_timeout_ms: default_http_timeout_ms(),
             a2s_timeout_ms: default_a2s_timeout_ms(),
             server_details_query_mode: ServerDetailsQueryMode::default(),
+            server_details_display_mode: ServerDetailsDisplayMode::default(),
             theme: ThemePreference::default(),
             language: LanguagePreference::default(),
             http_proxy: HttpProxySettings::default(),
@@ -575,6 +578,14 @@ pub enum ServerDetailsQueryMode {
     #[default]
     A2sUdp,
     Http,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ServerDetailsDisplayMode {
+    #[default]
+    SidePanel,
+    Window,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -967,6 +978,10 @@ mod tests {
 
         assert_eq!(settings.http_timeout_ms, 10000);
         assert_eq!(settings.a2s_timeout_ms, 500);
+        assert!(matches!(
+            settings.server_details_display_mode,
+            ServerDetailsDisplayMode::SidePanel
+        ));
     }
 
     #[test]
@@ -974,6 +989,7 @@ mod tests {
         let value = json!({
             "queryTimeoutMs": 2500,
             "serverDetailsQueryMode": "a2sUdp",
+            "serverDetailsDisplayMode": "window",
             "theme": "dark",
             "language": "system",
             "httpProxy": {
@@ -988,6 +1004,26 @@ mod tests {
 
         assert_eq!(settings.http_timeout_ms, 2500);
         assert_eq!(settings.a2s_timeout_ms, 500);
+        assert!(matches!(
+            settings.server_details_display_mode,
+            ServerDetailsDisplayMode::Window
+        ));
+    }
+
+    #[test]
+    fn settings_deserialization_backfills_missing_details_display_mode() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value
+            .as_object_mut()
+            .expect("settings should be an object")
+            .remove("serverDetailsDisplayMode");
+
+        let settings = serde_json::from_value::<AppSettings>(value).unwrap();
+
+        assert!(matches!(
+            settings.server_details_display_mode,
+            ServerDetailsDisplayMode::SidePanel
+        ));
     }
 
     #[test]

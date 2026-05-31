@@ -99,6 +99,10 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
         l4d2_server_hub_lib::models::ServerDetailsQueryMode::A2sUdp
     ));
     assert!(matches!(
+        settings.server_details_display_mode,
+        l4d2_server_hub_lib::models::ServerDetailsDisplayMode::SidePanel
+    ));
+    assert!(matches!(
         settings.http_proxy.mode,
         l4d2_server_hub_lib::models::HttpProxyMode::System
     ));
@@ -116,6 +120,8 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
     changed.http_proxy.mode = l4d2_server_hub_lib::models::HttpProxyMode::Custom;
     changed.http_proxy.custom_url = "http://127.0.0.1:7890".to_string();
     changed.server_details_query_mode = l4d2_server_hub_lib::models::ServerDetailsQueryMode::Http;
+    changed.server_details_display_mode =
+        l4d2_server_hub_lib::models::ServerDetailsDisplayMode::Window;
     changed.logging.enabled = true;
     changed.logging.level = l4d2_server_hub_lib::models::LogLevel::Debug;
     l4d2_server_hub_lib::settings_store::save_settings(&pool, &changed)
@@ -139,6 +145,10 @@ async fn settings_round_trip_uses_defaults_then_saved_value() {
     assert!(matches!(
         loaded.server_details_query_mode,
         l4d2_server_hub_lib::models::ServerDetailsQueryMode::Http
+    ));
+    assert!(matches!(
+        loaded.server_details_display_mode,
+        l4d2_server_hub_lib::models::ServerDetailsDisplayMode::Window
     ));
     assert!(loaded.logging.enabled);
     assert!(matches!(
@@ -178,6 +188,10 @@ async fn settings_store_backfills_missing_language_with_default() {
     assert!(matches!(
         settings.server_details_query_mode,
         l4d2_server_hub_lib::models::ServerDetailsQueryMode::A2sUdp
+    ));
+    assert!(matches!(
+        settings.server_details_display_mode,
+        l4d2_server_hub_lib::models::ServerDetailsDisplayMode::SidePanel
     ));
     assert!(matches!(
         settings.theme,

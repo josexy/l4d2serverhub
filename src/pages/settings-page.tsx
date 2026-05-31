@@ -39,6 +39,7 @@ import type {
   HttpProxyMode,
   LanguagePreference,
   LogLevel,
+  ServerDetailsDisplayMode,
   ServerDetailsQueryMode,
   ThemePreference,
 } from "@/lib/types";
@@ -47,6 +48,7 @@ type SettingsDraft = {
   httpTimeoutMs: string;
   a2sTimeoutMs: string;
   serverDetailsQueryMode: ServerDetailsQueryMode;
+  serverDetailsDisplayMode: ServerDetailsDisplayMode;
   proxyMode: HttpProxyMode;
   customProxyUrl: string;
   theme: ThemePreference;
@@ -76,6 +78,7 @@ function draftFromSettings(settings: AppSettings): SettingsDraft {
     httpTimeoutMs: String(settings.httpTimeoutMs),
     a2sTimeoutMs: String(settings.a2sTimeoutMs),
     serverDetailsQueryMode: settings.serverDetailsQueryMode,
+    serverDetailsDisplayMode: settings.serverDetailsDisplayMode,
     proxyMode: settings.httpProxy.mode,
     customProxyUrl: settings.httpProxy.customUrl,
     theme: settings.theme,
@@ -125,6 +128,7 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     settings.httpTimeoutMs,
     settings.a2sTimeoutMs,
     settings.serverDetailsQueryMode,
+    settings.serverDetailsDisplayMode,
     settings.theme,
     settings.logging.enabled,
     settings.logging.level,
@@ -217,6 +221,7 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
         httpTimeoutMs: parsedValues.httpTimeoutMs,
         a2sTimeoutMs: parsedValues.a2sTimeoutMs,
         serverDetailsQueryMode: draft.serverDetailsQueryMode,
+        serverDetailsDisplayMode: draft.serverDetailsDisplayMode,
         httpProxy: {
           mode: draft.proxyMode,
           customUrl:
@@ -574,6 +579,41 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
                       </SelectItem>
                       <SelectItem value="http">
                         {messages.settings.options.detailsQueryHttp}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+
+                <div>
+                  <label
+                    htmlFor="details-display-mode"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    {messages.settings.labels.detailsDisplayMode}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {messages.settings.labels.detailsDisplayModeDescription}
+                  </p>
+                </div>
+                <Select
+                  value={draft.serverDetailsDisplayMode}
+                  onValueChange={(value) =>
+                    updateDraft(
+                      "serverDetailsDisplayMode",
+                      value as ServerDetailsDisplayMode,
+                    )
+                  }
+                >
+                  <SelectTrigger id="details-display-mode" className="w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="sidePanel">
+                        {messages.settings.options.detailsDisplaySidePanel}
+                      </SelectItem>
+                      <SelectItem value="window">
+                        {messages.settings.options.detailsDisplayWindow}
                       </SelectItem>
                     </SelectGroup>
                   </SelectContent>

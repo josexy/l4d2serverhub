@@ -335,6 +335,9 @@ export const zhCn: Messages = {
       detailsQueryMode: "详情查询方式",
       detailsQueryModeDescription:
         "A2S UDP 查询服务器详情更快，且不使用 HTTP 代理。",
+      detailsDisplayMode: "详情显示方式",
+      detailsDisplayModeDescription:
+        "选择在右侧面板或独立窗口中打开服务器详情。",
       proxy: "HTTP 代理",
       proxyDescription: "用于上游服务器列表 HTTP 请求的代理。",
       theme: "主题",
@@ -355,6 +358,8 @@ export const zhCn: Messages = {
       proxyCustom: "自定义代理",
       detailsQueryA2sUdp: "A2S UDP",
       detailsQueryHttp: "HTTP 接口",
+      detailsDisplaySidePanel: "右侧面板",
+      detailsDisplayWindow: "新窗口",
       languageSystem: "跟随系统",
       languageEnglish: "英文",
       languageChinese: "简体中文",
@@ -435,6 +440,18 @@ export const zhCn: Messages = {
     snapshotSection: "快照",
     playersSection: "玩家",
     noPlayers: "当前没有可用的玩家数据。",
+    autoRetry: {
+      label: "自动重试",
+      options: {
+        none: "无",
+        remind: "提醒",
+        autoJoin: "自动加入",
+      },
+      toasts: {
+        remind: (name: string) => `${name} 当前有可用空位。`,
+        autoJoin: (name: string) => `检测到空位，正在自动连接 ${name}。`,
+      },
+    },
     placeholderPlayerName: (index: number) => `玩家${index}`,
     noTags: "无标签",
     pingUnknown: "未知",

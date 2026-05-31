@@ -9,7 +9,8 @@ import {
 } from "react";
 import { useTheme } from "next-themes";
 
-import { api } from "@/lib/api";
+import { SETTINGS_UPDATED_EVENT, api } from "@/lib/api";
+import { listen } from "@tauri-apps/api/event";
 import { DEFAULT_APP_SETTINGS } from "@/lib/default-settings";
 import { getMessages, resolveUiLocale, type UiLocale } from "@/lib/i18n";
 import type { AppSettings } from "@/lib/types";
@@ -40,6 +41,7 @@ export function AppPreferencesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+    let unlistenSettings: (() => void) | null = null;
 
     const loadSettings = async () => {
       try {
@@ -59,10 +61,25 @@ export function AppPreferencesProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const listenForSettingsUpdates = async () => {
+      unlistenSettings = await listen<AppSettings>(
+        SETTINGS_UPDATED_EVENT,
+        (event) => {
+          if (isMounted) {
+            setSettings(event.payload);
+            setSettingsLoadFailed(false);
+            setSettingsLoaded(true);
+          }
+        },
+      );
+    };
+
     void loadSettings();
+    void listenForSettingsUpdates();
 
     return () => {
       isMounted = false;
+      unlistenSettings?.();
     };
   }, []);
 

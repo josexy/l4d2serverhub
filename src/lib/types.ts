@@ -3,7 +3,9 @@ export type ThemePreference = "system" | "light" | "dark";
 export type LanguagePreference = "system" | "en" | "zh-CN";
 export type HttpProxyMode = "none" | "system" | "custom";
 export type ServerDetailsQueryMode = "a2sUdp" | "http";
+export type ServerDetailsDisplayMode = "sidePanel" | "window";
 export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+export type AutoRetryMode = "none" | "remind" | "autoJoin";
 export type CommandErrorKind =
   | "networkTimeout"
   | "upstreamUnavailable"
@@ -114,6 +116,7 @@ export interface AppSettings {
   httpTimeoutMs: number;
   a2sTimeoutMs: number;
   serverDetailsQueryMode: ServerDetailsQueryMode;
+  serverDetailsDisplayMode: ServerDetailsDisplayMode;
   theme: ThemePreference;
   language: LanguagePreference;
   httpProxy: HttpProxySettings;
@@ -201,6 +204,10 @@ export interface SavedServerSnapshotProgressEvent {
   page: number;
   pageSize: number;
   refreshedAt: string;
+  snapshot: ServerSnapshot;
+}
+
+export interface ServerSnapshotUpdatedEvent {
   snapshot: ServerSnapshot;
 }
 

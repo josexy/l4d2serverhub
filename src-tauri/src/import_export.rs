@@ -253,6 +253,7 @@ where
             "httpTimeoutMs",
             "a2sTimeoutMs",
             "serverDetailsQueryMode",
+            "serverDetailsDisplayMode",
             "theme",
             "language",
             "serverBrowser",

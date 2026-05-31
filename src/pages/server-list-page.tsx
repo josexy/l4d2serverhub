@@ -17,6 +17,7 @@ import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { toast } from "@/components/ui/toast";
 import { api, formatCommandError } from "@/lib/api";
 import { createDefaultFilters } from "@/lib/filters";
+import { openServerDetailWindow } from "@/lib/server-detail-windows";
 import type {
   Favorite,
   FavoriteInput,
@@ -455,13 +456,39 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
     setRefreshKey((current) => current + 1);
   }, [filters.query, recordSearchHistory]);
 
-  const handleSelectServer = useCallback((server: ServerSnapshot) => {
-    setSelectedServer(server);
-    setDetailOpen(true);
-  }, []);
+  const handleSelectServer = useCallback(
+    (server: ServerSnapshot) => {
+      setSelectedServer(server);
+
+      if (settings.serverDetailsDisplayMode === "window") {
+        setDetailOpen(false);
+        void openServerDetailWindow({
+          address: server.address,
+          serverId: server.serverId,
+          fallbackName: server.name,
+          snapshot: server,
+        }).catch((windowError) => {
+          const message = formatCommandError(
+            windowError,
+            messages.serverDetail.snapshotUnavailable,
+          );
+          toast.error(message);
+        });
+        return;
+      }
+
+      setDetailOpen(true);
+    },
+    [
+      messages.serverDetail.snapshotUnavailable,
+      settings.serverDetailsDisplayMode,
+    ],
+  );
 
   const handleServerUpdate = useCallback((server: ServerSnapshot) => {
-    setSelectedServer(server);
+    setSelectedServer((current) =>
+      current?.address === server.address ? server : current,
+    );
     setQueryResult((current) =>
       current
         ? {
@@ -473,6 +500,22 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
         : current,
     );
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const listenForSnapshotUpdates = async () => {
+      unlisten = await api.listenServerSnapshotUpdated(({ snapshot }) => {
+        handleServerUpdate(snapshot);
+      });
+    };
+
+    void listenForSnapshotUpdates();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [handleServerUpdate]);
 
   const toggleFavorite = useCallback(
     async (server: ServerSnapshot) => {

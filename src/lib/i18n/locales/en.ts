@@ -335,6 +335,9 @@ export const en = {
       detailsQueryMode: "Details query method",
       detailsQueryModeDescription:
         "A2S UDP is faster for server details and does not use the HTTP proxy.",
+      detailsDisplayMode: "Details display",
+      detailsDisplayModeDescription:
+        "Choose whether server details open in the side panel or separate windows.",
       proxy: "HTTP proxy",
       proxyDescription: "Proxy used for upstream server list HTTP requests.",
       theme: "Theme",
@@ -355,6 +358,8 @@ export const en = {
       proxyCustom: "Custom proxy",
       detailsQueryA2sUdp: "A2S UDP",
       detailsQueryHttp: "HTTP API",
+      detailsDisplaySidePanel: "Side panel",
+      detailsDisplayWindow: "New window",
       languageSystem: "System",
       languageEnglish: "English",
       languageChinese: "Chinese (Simplified)",
@@ -436,6 +441,18 @@ export const en = {
     snapshotSection: "Snapshot",
     playersSection: "Players",
     noPlayers: "No player data is currently available.",
+    autoRetry: {
+      label: "Auto retry",
+      options: {
+        none: "None",
+        remind: "Remind",
+        autoJoin: "Auto join",
+      },
+      toasts: {
+        remind: (name: string) => `${name} now has an open player slot.`,
+        autoJoin: (name: string) => `Open slot found. Auto-joining ${name}.`,
+      },
+    },
     placeholderPlayerName: (index: number) => `Player ${index}`,
     noTags: "No tags",
     pingUnknown: "Unknown",

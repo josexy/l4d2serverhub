@@ -3,7 +3,7 @@ use l4d2_server_hub_lib::errors::AppError;
 use l4d2_server_hub_lib::import_export::{export_data, import_data, BackupPayload};
 use l4d2_server_hub_lib::models::{
     AppSettings, Favorite, FavoriteGroup, FavoriteInput, HistoryRecord, HttpProxyMode, LogLevel,
-    ServerSnapshot, ServerSnapshotInput,
+    ServerDetailsDisplayMode, ServerSnapshot, ServerSnapshotInput,
 };
 
 async fn memory_pool() -> sqlx::SqlitePool {
@@ -136,6 +136,7 @@ async fn backup_payload_round_trips_between_databases() {
 
     let mut settings = AppSettings::default();
     settings.server_browser.page_size = 25;
+    settings.server_details_display_mode = ServerDetailsDisplayMode::Window;
     l4d2_server_hub_lib::settings_store::save_settings(&source, &settings)
         .await
         .unwrap();
@@ -167,6 +168,7 @@ async fn backup_payload_round_trips_between_databases() {
         .expect("settings should be an object");
     assert!(exported_settings.contains_key("httpProxy"));
     assert!(exported_settings.contains_key("logging"));
+    assert!(exported_settings.contains_key("serverDetailsDisplayMode"));
     assert!(!exported_settings.contains_key("defaultPageSize"));
     assert!(!exported_settings.contains_key("autoRefreshEnabled"));
     assert!(!exported_settings.contains_key("autoRefreshIntervalSec"));
@@ -176,6 +178,10 @@ async fn backup_payload_round_trips_between_databases() {
 
     assert_eq!(imported.version, 1);
     assert_eq!(imported.settings.server_browser.page_size, 25);
+    assert!(matches!(
+        imported.settings.server_details_display_mode,
+        ServerDetailsDisplayMode::Window
+    ));
     assert!(matches!(
         imported.settings.http_proxy.mode,
         HttpProxyMode::System
@@ -653,6 +659,30 @@ fn backup_payload_deserialization_backfills_missing_logging() {
 
     assert!(!payload.settings.logging.enabled);
     assert!(matches!(payload.settings.logging.level, LogLevel::Info));
+}
+
+#[test]
+fn backup_payload_deserialization_backfills_missing_details_display_mode() {
+    let payload = BackupPayload {
+        version: 1,
+        settings: AppSettings::default(),
+        groups: vec![default_group()],
+        favorites: Vec::new(),
+        history: Vec::new(),
+    };
+    let mut value = serde_json::to_value(payload).unwrap();
+    value["settings"]
+        .as_object_mut()
+        .expect("settings should be an object")
+        .remove("serverDetailsDisplayMode");
+
+    let payload = serde_json::from_value::<BackupPayload>(value)
+        .expect("missing details display mode should be accepted for old backups");
+
+    assert!(matches!(
+        payload.settings.server_details_display_mode,
+        ServerDetailsDisplayMode::SidePanel
+    ));
 }
 
 #[test]
