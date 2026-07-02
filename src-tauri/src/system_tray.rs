@@ -102,7 +102,7 @@ pub fn register_close_to_tray<R: Runtime>(window: &WebviewWindow<R>) {
     });
 }
 
-fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app_main_window(app) else {
         log::warn!("failed to find main window for system tray action");
         return;

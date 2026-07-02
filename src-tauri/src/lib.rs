@@ -201,7 +201,21 @@ pub fn run() {
     #[cfg(debug_assertions)]
     log_targets.push(Target::new(TargetKind::Stdout));
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Must be registered as the first plugin: when a second instance is
+    // launched (e.g. clicking a pinned taskbar icon while already running),
+    // this callback runs in the original instance so we can focus its
+    // window instead of letting a duplicate process start.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("blocked duplicate app launch; focusing existing window instead");
+            system_tray::show_main_window(app);
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
