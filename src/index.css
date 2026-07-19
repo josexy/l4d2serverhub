@@ -186,8 +186,6 @@
 
   .app-sidebar {
     display: flex;
-    position: relative;
-    z-index: 1;
     box-sizing: border-box;
     width: 64px;
     min-width: 0;
@@ -199,38 +197,15 @@
     background:
       linear-gradient(180deg, var(--shell-sidebar-elevated), var(--shell-sidebar));
     padding: 14px 12px;
-    transition: width 160ms ease, box-shadow 160ms ease;
-  }
-
-  .app-sidebar:is(:hover, :focus-within) {
-    z-index: 10;
-    width: 240px;
-    box-shadow: 10px 0 20px color-mix(in oklab, var(--foreground) 14%, transparent);
   }
 
   .app-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    width: 40px;
     min-height: 40px;
     min-width: 0;
-  }
-
-  .app-brand-copy,
-  .app-nav-copy,
-  .app-status-copy {
-    min-width: 0;
-    max-width: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: max-width 160ms ease, opacity 120ms ease;
-  }
-
-  .app-sidebar:is(:hover, :focus-within) .app-brand-copy,
-  .app-sidebar:is(:hover, :focus-within) .app-nav-copy,
-  .app-sidebar:is(:hover, :focus-within) .app-status-copy {
-    max-width: 170px;
-    opacity: 1;
   }
 
   .app-brand-mark {
@@ -252,18 +227,6 @@
     object-fit: contain;
   }
 
-  .app-brand-title {
-    overflow: hidden;
-    color: var(--sidebar-foreground);
-    font-size: 0.9rem;
-    font-weight: 720;
-    letter-spacing: 0;
-    line-height: 1.15;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .app-brand-subtitle,
   .page-eyebrow {
     color: var(--muted-foreground);
     font-size: 0.72rem;
@@ -290,7 +253,6 @@
     border-radius: 7px;
     padding: 0;
     color: var(--sidebar-foreground);
-    transition: width 160ms ease, gap 160ms ease, padding 160ms ease;
   }
 
   .app-nav-button svg {
@@ -299,28 +261,10 @@
     flex: 0 0 18px;
   }
 
-  .app-sidebar:is(:hover, :focus-within) .app-nav-button {
-    justify-content: flex-start;
-    width: 100%;
-    gap: 10px;
-    padding: 7px 10px;
-  }
-
   .app-nav-button.is-selected {
     border-color: var(--shell-selection-border);
     background: var(--shell-selection);
     box-shadow: inset 3px 0 0 var(--primary);
-  }
-
-  .app-nav-description {
-    display: block;
-    overflow: hidden;
-    color: var(--muted-foreground);
-    font-size: 0.72rem;
-    font-weight: 500;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .app-sidebar-footer {
@@ -338,18 +282,6 @@
     padding: 0;
     color: var(--muted-foreground);
     font-size: 0.75rem;
-    transition: width 160ms ease, min-height 160ms ease, gap 160ms ease,
-      padding 160ms ease, border-color 160ms ease, background-color 160ms ease;
-  }
-
-  .app-sidebar:is(:hover, :focus-within) .app-sidebar-footer {
-    justify-content: flex-start;
-    width: 100%;
-    min-height: 34px;
-    gap: 8px;
-    border-color: var(--sidebar-border);
-    background: var(--shell-sidebar-elevated);
-    padding: 0 10px;
   }
 
   .app-status-dot {
@@ -393,17 +325,6 @@
     flex: 1;
     overflow: hidden;
     padding: 16px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .app-sidebar,
-    .app-brand-copy,
-    .app-nav-copy,
-    .app-status-copy,
-    .app-nav-button,
-    .app-sidebar-footer {
-      transition: none;
-    }
   }
 
   .page-layout {

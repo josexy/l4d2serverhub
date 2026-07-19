@@ -3,6 +3,12 @@ import type { LucideIcon } from "lucide-react";
 import { History, Info, Server, Settings, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useI18n } from "@/lib/app-preferences";
 import { cn } from "@/lib/utils";
 
@@ -58,47 +64,50 @@ export function AppShell({
           <div className="app-brand-mark">
             <img src={appIconUrl} alt="" aria-hidden="true" />
           </div>
-          <div className="app-brand-copy">
-            <p className="app-brand-title">{messages.appShell.brandTitle}</p>
-          </div>
+          <span className="sr-only">{messages.appShell.brandTitle}</span>
         </div>
 
-        <nav className="app-nav" aria-label="Sections">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isSelected = currentPage === item.id;
-            const copy = messages.appShell.navigation[item.id];
+        <TooltipProvider delayDuration={250}>
+          <nav className="app-nav" aria-label="Sections">
+            {navigationItems.map((item) => {
+              const Icon = item.icon;
+              const isSelected = currentPage === item.id;
+              const copy = messages.appShell.navigation[item.id];
 
-            return (
-              <Button
-                key={item.id}
-                type="button"
-                variant={isSelected ? "secondary" : "ghost"}
-                className={cn(
-                  "app-nav-button h-10 min-h-10",
-                  isSelected && "is-selected",
-                )}
-                aria-label={copy.label}
-                aria-current={isSelected ? "page" : undefined}
-                onClick={() => onPageChange(item.id)}
-              >
-                <Icon data-icon="inline-start" />
-                <span className="app-nav-copy min-w-0 flex-1 text-left">
-                  <span className="block truncate">{copy.label}</span>
-                  <span className="app-nav-description" aria-hidden="true">
-                    {copy.description}
-                  </span>
-                </span>
-              </Button>
-            );
-          })}
-        </nav>
+              return (
+                <Tooltip key={item.id}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={isSelected ? "secondary" : "ghost"}
+                      className={cn(
+                        "app-nav-button h-10 min-h-10",
+                        isSelected && "is-selected",
+                      )}
+                      aria-label={copy.label}
+                      aria-current={isSelected ? "page" : undefined}
+                      onClick={() => onPageChange(item.id)}
+                    >
+                      <Icon data-icon="inline-start" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="right"
+                    sideOffset={8}
+                    className="flex-col items-start gap-0.5"
+                  >
+                    <span className="font-medium">{copy.label}</span>
+                    <span className="opacity-70">{copy.description}</span>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </nav>
+        </TooltipProvider>
 
         <div className="app-sidebar-footer">
           <div className="app-status-dot" aria-hidden="true" />
-          <span className="app-status-copy truncate">
-            {messages.appShell.readyStatus}
-          </span>
+          <span className="sr-only">{messages.appShell.readyStatus}</span>
         </div>
       </aside>
 
