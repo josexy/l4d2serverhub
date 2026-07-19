@@ -1,7 +1,7 @@
 {
   "name": "l4d2-server-hub",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
