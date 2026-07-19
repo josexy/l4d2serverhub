@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, FolderPlus, LoaderCircle, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,9 @@ export function FavoriteGroupPickerDialog({
   onSaved,
 }: FavoriteGroupPickerDialogProps) {
   const { messages } = useI18n();
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const newGroupRegionId = useId();
   const [groups, setGroups] = useState<FavoriteGroup[]>([]);
   const [groupId, setGroupId] = useState("");
   const [loadingGroups, setLoadingGroups] = useState(false);
@@ -102,7 +105,7 @@ export function FavoriteGroupPickerDialog({
           setGroupsLoadError(
             formatCommandError(
               error,
-              messages.favoriteGroupPicker.loadFailed,
+              messagesRef.current.favoriteGroupPicker.loadFailed,
             ),
           );
         }
@@ -112,7 +115,7 @@ export function FavoriteGroupPickerDialog({
           setLoadingGroups(false);
         }
       });
-  }, [messages.favoriteGroupPicker.loadFailed, open]);
+  }, [open]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isBusy) {
@@ -332,6 +335,8 @@ export function FavoriteGroupPickerDialog({
                   variant="ghost"
                   size="sm"
                   disabled={!canCreateGroup}
+                  aria-expanded={newGroupExpanded}
+                  aria-controls={newGroupRegionId}
                   onClick={() => setNewGroupExpanded((current) => !current)}
                 >
                   <FolderPlus aria-hidden="true" />
@@ -345,7 +350,10 @@ export function FavoriteGroupPickerDialog({
                 </Button>
 
                 {newGroupExpanded ? (
-                  <div className="flex flex-col gap-2 rounded-lg border p-3">
+                  <div
+                    id={newGroupRegionId}
+                    className="flex flex-col gap-2 rounded-lg border p-3"
+                  >
                     <label className="flex flex-col gap-1.5 text-sm font-medium">
                       {messages.favoriteGroupPicker.newGroupName}
                       <Input
