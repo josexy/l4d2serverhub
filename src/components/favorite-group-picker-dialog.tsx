@@ -95,10 +95,6 @@ export function FavoriteGroupPickerDialog({
         }
 
         setGroups(loadedGroups);
-        setGroupId(
-          loadedGroups.find((group) => group.id === DEFAULT_FAVORITE_GROUP_ID)
-            ?.id ?? loadedGroups[0]?.id ?? "",
-        );
       })
       .catch((error: unknown) => {
         if (sessionIdRef.current === sessionId) {
@@ -116,6 +112,23 @@ export function FavoriteGroupPickerDialog({
         }
       });
   }, [open]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      loadingGroups ||
+      groupsLoadError !== null ||
+      groupId ||
+      groups.length === 0
+    ) {
+      return;
+    }
+
+    setGroupId(
+      groups.find((group) => group.id === DEFAULT_FAVORITE_GROUP_ID)?.id ??
+        groups[0].id,
+    );
+  }, [groupId, groups, groupsLoadError, loadingGroups, open]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isBusy) {
@@ -145,10 +158,6 @@ export function FavoriteGroupPickerDialog({
         }
 
         setGroups(loadedGroups);
-        setGroupId(
-          loadedGroups.find((group) => group.id === DEFAULT_FAVORITE_GROUP_ID)
-            ?.id ?? loadedGroups[0]?.id ?? "",
-        );
       })
       .catch((error: unknown) => {
         if (sessionIdRef.current === sessionId) {
