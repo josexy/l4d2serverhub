@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { FilterToolbar } from "@/components/filter-toolbar";
+import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { ServerTable } from "@/components/server-table";
 import { TablePagination } from "@/components/table-pagination";
@@ -17,10 +18,14 @@ import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { toast } from "@/components/ui/toast";
 import { api, formatCommandError } from "@/lib/api";
 import { createDefaultFilters } from "@/lib/filters";
+import {
+  createFavoriteDraftFromSnapshot,
+  indexFavoritesByAddress,
+  type FavoriteDraft,
+} from "@/lib/favorites";
 import { openServerDetailWindow } from "@/lib/server-detail-windows";
 import type {
   Favorite,
-  FavoriteInput,
   SearchHistoryRecord,
   ServerFilters,
   ServerQueryParams,
@@ -31,34 +36,9 @@ import type {
 
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_SORT: ServerSort = "none";
-const DEFAULT_GROUP_ID = "default";
 const FILTER_DEBOUNCE_MS = 250;
 const SEARCH_HISTORY_DEBOUNCE_MS = 900;
 const SERVER_BROWSER_SAVE_DEBOUNCE_MS = 500;
-
-function favoriteInputFor(server: ServerSnapshot, groupId: string): FavoriteInput {
-  return {
-    address: server.address,
-    serverId: server.serverId,
-    groupId,
-    customName: server.name.trim() || null,
-    notes: "",
-    tags: server.modeTags,
-  };
-}
-
-function favoritesByAddress(favorites: Favorite[]): Map<string, Favorite> {
-  const byAddress = new Map<string, Favorite>();
-
-  for (const favorite of favorites) {
-    const existing = byAddress.get(favorite.address);
-    if (!existing || favorite.groupId === DEFAULT_GROUP_ID) {
-      byAddress.set(favorite.address, favorite);
-    }
-  }
-
-  return byAddress;
-}
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -128,6 +108,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
   const [selectedServer, setSelectedServer] = useState<ServerSnapshot | null>(
     null,
   );
+  const [favoriteDraft, setFavoriteDraft] = useState<FavoriteDraft | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingFavoriteAddresses, setPendingFavoriteAddresses] = useState<
@@ -242,7 +223,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
           return;
         }
 
-        setFavoriteByAddress(favoritesByAddress(favorites));
+        setFavoriteByAddress(indexFavoritesByAddress(favorites));
         favoritesWarningShownRef.current = false;
       } catch {
         if (isCurrent && !favoritesWarningShownRef.current) {
@@ -337,7 +318,7 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
             favoritesWarningShownRef.current = true;
           }
         } else {
-          setFavoriteByAddress(favoritesByAddress(favoritesResult.favorites));
+          setFavoriteByAddress(indexFavoritesByAddress(favoritesResult.favorites));
           favoritesWarningShownRef.current = false;
         }
       } catch (queryError) {
@@ -519,6 +500,12 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
 
   const toggleFavorite = useCallback(
     async (server: ServerSnapshot) => {
+      const existingFavorite = favoriteByAddress.get(server.address);
+      if (!existingFavorite) {
+        setFavoriteDraft(createFavoriteDraftFromSnapshot(server));
+        return;
+      }
+
       if (
         !addPendingAddress(
           pendingFavoriteAddressesRef,
@@ -529,34 +516,15 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
         return;
       }
 
-      const existingFavorite = favoriteByAddress.get(server.address);
-
       try {
-        if (existingFavorite) {
-          await api.deleteFavorite(existingFavorite.id);
-          const favorites = await api.listFavorites();
-          setFavoriteByAddress(favoritesByAddress(favorites));
-          toast.success(messages.serverList.toasts.favoriteRemoved);
-          return;
-        }
-
-        const groups = await api.listGroups();
-        const groupId =
-          groups.find((group) => group.id === DEFAULT_GROUP_ID)?.id ??
-          DEFAULT_GROUP_ID;
-        const favorite = await api.addFavorite(favoriteInputFor(server, groupId));
-        setFavoriteByAddress((current) => {
-          const next = new Map(current);
-          next.set(favorite.address, favorite);
-          return next;
-        });
-        toast.success(messages.serverList.toasts.favoriteAdded);
+        await api.deleteFavorite(existingFavorite.id);
+        const favorites = await api.listFavorites();
+        setFavoriteByAddress(indexFavoritesByAddress(favorites));
+        toast.success(messages.serverList.toasts.favoriteRemoved);
       } catch (favoriteError) {
         const message = formatCommandError(
           favoriteError,
-          existingFavorite
-            ? messages.serverList.toasts.favoriteRemoveFailed
-            : messages.favorites.toasts.saveFailed,
+          messages.serverList.toasts.favoriteRemoveFailed,
         );
         toast.error(message);
       } finally {
@@ -569,8 +537,6 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
     },
     [
       favoriteByAddress,
-      messages.favorites.toasts.saveFailed,
-      messages.serverList.toasts.favoriteAdded,
       messages.serverList.toasts.favoriteRemoveFailed,
       messages.serverList.toasts.favoriteRemoved,
     ],
@@ -706,6 +672,23 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
             ? favoriteAddresses.has(selectedServer.address)
             : false
         }
+      />
+
+      <FavoriteGroupPickerDialog
+        open={isActive && favoriteDraft !== null}
+        draft={favoriteDraft}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFavoriteDraft(null);
+          }
+        }}
+        onSaved={(favorite) => {
+          setFavoriteByAddress((current) => {
+            const next = new Map(current);
+            next.set(favorite.address, favorite);
+            return next;
+          });
+        }}
       />
     </section>
   );

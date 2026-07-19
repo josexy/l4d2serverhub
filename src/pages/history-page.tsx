@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { ServerDetailPanel } from "@/components/server-detail-panel";
+import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
 import { SortableTableHead } from "@/components/sortable-table-head";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,11 @@ import { toast } from "@/components/ui/toast";
 import { HISTORY_UPDATED_EVENT, api, formatCommandError } from "@/lib/api";
 import { useAppPreferences, useI18n } from "@/lib/app-preferences";
 import { createDefaultFilters } from "@/lib/filters";
+import {
+  createFavoriteDraftFromSnapshot,
+  indexFavoritesByAddress,
+  type FavoriteDraft,
+} from "@/lib/favorites";
 import { getDisplayModeTags, MODE_TAG_CLASS_NAMES } from "@/lib/mode-tags";
 import { openServerDetailWindow } from "@/lib/server-detail-windows";
 import {
@@ -51,8 +57,6 @@ import {
 import { cn } from "@/lib/utils";
 import type {
   Favorite,
-  FavoriteGroup,
-  FavoriteInput,
   HistoryRecord,
   SavedServerSnapshotProgressEvent,
   SavedServerSnapshotQueryTarget,
@@ -60,7 +64,6 @@ import type {
   ServerSnapshot,
 } from "@/lib/types";
 
-const FALLBACK_GROUP_ID = "default";
 const DEFAULT_ADDRESS_PAGE_SIZE = 50;
 const ADDRESS_PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SELECT_COLUMN_WIDTH = 44;
@@ -151,14 +154,10 @@ function historyRecordWithSnapshot(
   };
 }
 
-function favoriteInputForHistoryRow(
-  row: HistoryServerRow,
-  groupId: string,
-): FavoriteInput {
+function favoriteDraftFromHistoryRow(row: HistoryServerRow): FavoriteDraft {
   return {
     address: row.address,
     serverId: row.serverId,
-    groupId,
     customName: row.name || null,
     notes: "",
     tags: row.snapshot?.modeTags ?? [],
@@ -462,8 +461,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const { messages, formatDateTime } = useI18n();
   const { settings } = useAppPreferences();
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [favoriteDraft, setFavoriteDraft] = useState<FavoriteDraft | null>(null);
   const [selectedHistoryKeys, setSelectedHistoryKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -586,17 +585,13 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     rowsRef.current = rows;
   }, [rows]);
 
-  const defaultGroupId =
-    groups.find((group) => group.id === FALLBACK_GROUP_ID)?.id ??
-    FALLBACK_GROUP_ID;
+  const favoriteByAddress = useMemo(
+    () => indexFavoritesByAddress(favorites),
+    [favorites],
+  );
   const favoriteAddresses = useMemo(
-    () =>
-      new Set(
-        favorites
-          .filter((favorite) => favorite.groupId === defaultGroupId)
-          .map((favorite) => favorite.address),
-      ),
-    [defaultGroupId, favorites],
+    () => new Set(favoriteByAddress.keys()),
+    [favoriteByAddress],
   );
   const currentRowKeys = useMemo(
     () => new Set(sortedDisplayedRows.map((row) => row.key)),
@@ -645,13 +640,11 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     setError(null);
 
     try {
-      const [historyResult, groupsResult, favoritesResult] = await Promise.all([
+      const [historyResult, favoritesResult] = await Promise.all([
         api.listHistory(),
-        api.listGroups(),
         api.listFavorites(),
       ]);
       setHistory(historyResult);
-      setGroups(groupsResult);
       setFavorites(favoritesResult);
       setHistoryQueryResult(null);
       historyLoadedRef.current = true;
@@ -1042,73 +1035,29 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     }
   };
 
-  const handleAddFavorite = async (row: HistoryServerRow) => {
-    if (favoriteAddresses.has(row.address)) {
-      toast.info(messages.history.toasts.alreadyFavorite);
+  const handleToggleFavorite = async (draft: FavoriteDraft) => {
+    const existingFavorite = favoriteByAddress.get(draft.address);
+    if (!existingFavorite) {
+      setFavoriteDraft(draft);
       return;
     }
 
-    if (pendingFavoriteAddressRef.current === row.address) {
+    if (pendingFavoriteAddressRef.current === draft.address) {
       return;
     }
 
-    pendingFavoriteAddressRef.current = row.address;
-    setPendingFavoriteAddress(row.address);
+    pendingFavoriteAddressRef.current = draft.address;
+    setPendingFavoriteAddress(draft.address);
     try {
-      const favorite = await api.addFavorite(
-        favoriteInputForHistoryRow(row, defaultGroupId),
+      await api.deleteFavorite(existingFavorite.id);
+      setFavorites((current) =>
+        current.filter((favorite) => favorite.id !== existingFavorite.id),
       );
-      setFavorites((current) => [...current, favorite]);
-      toast.success(messages.history.toasts.favoriteAdded);
+      toast.success(messages.serverList.toasts.favoriteRemoved);
     } catch (favoriteError) {
       const message = formatCommandError(
         favoriteError,
-        messages.history.toasts.favoriteAddFailed,
-      );
-      toast.error(message);
-    } finally {
-      pendingFavoriteAddressRef.current = null;
-      setPendingFavoriteAddress(null);
-    }
-  };
-
-  const handleToggleFavoriteFromDetails = async (server: ServerSnapshot) => {
-    const existingFavorite = favorites.find(
-      (favorite) =>
-        favorite.groupId === defaultGroupId && favorite.address === server.address,
-    );
-
-    if (pendingFavoriteAddressRef.current === server.address) {
-      return;
-    }
-
-    pendingFavoriteAddressRef.current = server.address;
-    setPendingFavoriteAddress(server.address);
-    try {
-      if (existingFavorite) {
-        await api.deleteFavorite(existingFavorite.id);
-        setFavorites((current) =>
-          current.filter((favorite) => favorite.id !== existingFavorite.id),
-        );
-        toast.success(messages.serverList.toasts.favoriteRemoved);
-      } else {
-        const favorite = await api.addFavorite({
-          address: server.address,
-          serverId: server.serverId,
-          groupId: defaultGroupId,
-          customName: server.name,
-          notes: "",
-          tags: server.modeTags,
-        });
-        setFavorites((current) => [...current, favorite]);
-        toast.success(messages.history.toasts.favoriteAdded);
-      }
-    } catch (favoriteError) {
-      const message = formatCommandError(
-        favoriteError,
-        existingFavorite
-          ? messages.serverList.toasts.favoriteRemoveFailed
-          : messages.history.toasts.favoriteAddFailed,
+        messages.serverList.toasts.favoriteRemoveFailed,
       );
       toast.error(message);
     } finally {
@@ -1699,13 +1648,15 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                             variant={isFavorite ? "secondary" : "ghost"}
                             aria-label={
                               isFavorite
-                                ? messages.history.actions.favoriteExists
+                                ? messages.serverTable.aria.removeFavorite(row.name)
                                 : messages.history.actions.addFavorite(row.name)
                             }
-                            disabled={
-                              isFavorite || pendingFavoriteAddress === row.address
+                            disabled={pendingFavoriteAddress === row.address}
+                            onClick={() =>
+                              void handleToggleFavorite(
+                                favoriteDraftFromHistoryRow(row),
+                              )
                             }
-                            onClick={() => void handleAddFavorite(row)}
                           >
                             {pendingFavoriteAddress === row.address ? (
                               <RefreshCw aria-hidden="true" />
@@ -1785,13 +1736,28 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
         server={selectedServer}
         onOpenChange={handleDetailOpenChange}
         onConnect={handleConnectServer}
-        onToggleFavorite={handleToggleFavoriteFromDetails}
+        onToggleFavorite={(server) =>
+          void handleToggleFavorite(createFavoriteDraftFromSnapshot(server))
+        }
         onUpdateServer={handleHistoryServerUpdate}
         connectPending={
           selectedServer !== null && pendingConnectAddress === selectedServer.address
         }
         favoritePending={detailFavoritePending}
         isFavorite={detailIsFavorite}
+      />
+
+      <FavoriteGroupPickerDialog
+        open={isActive && favoriteDraft !== null}
+        draft={favoriteDraft}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFavoriteDraft(null);
+          }
+        }}
+        onSaved={(favorite) => {
+          setFavorites((current) => [...current, favorite]);
+        }}
       />
 
       <Dialog open={isActive && clearDialogOpen} onOpenChange={setClearDialogOpen}>
