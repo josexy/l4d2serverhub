@@ -684,9 +684,11 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
         }}
         onSaved={(favorite) => {
           setFavoriteByAddress((current) => {
-            const next = new Map(current);
-            next.set(favorite.address, favorite);
-            return next;
+            const nextFavorites = Array.from(current.values()).filter(
+              (currentFavorite) => currentFavorite.id !== favorite.id,
+            );
+            nextFavorites.push(favorite);
+            return indexFavoritesByAddress(nextFavorites);
           });
         }}
       />

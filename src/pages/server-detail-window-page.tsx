@@ -1,5 +1,5 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ServerDetailContent } from "@/components/server-detail-panel";
 import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
@@ -56,17 +56,55 @@ export function ServerDetailWindowPage() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [favoriteDraft, setFavoriteDraft] = useState<FavoriteDraft | null>(null);
   const [connectPending, setConnectPending] = useState(false);
-  const [favoritePending, setFavoritePending] = useState(false);
+  const [favoriteActionPending, setFavoriteActionPending] = useState(false);
+  const [favoriteMetadataStatus, setFavoriteMetadataStatus] = useState<
+    "loading" | "ready" | "failed"
+  >("loading");
   const [contextFavoriteId, setContextFavoriteId] = useState(
     payload?.favoriteId ?? null,
   );
   const persistingSnapshotRef = useRef(false);
+  const favoriteMetadataRequestIdRef = useRef(0);
 
   const favoriteByAddress = useMemo(
     () => indexFavoritesByAddress(favorites),
     [favorites],
   );
-  const favorite = server ? favoriteByAddress.get(server.address) ?? null : null;
+  const favorite =
+    favoriteMetadataStatus === "ready" && server
+      ? favoriteByAddress.get(server.address) ?? null
+      : null;
+  const isFavorite =
+    favoriteMetadataStatus === "ready"
+      ? favorite !== null
+      : contextFavoriteId !== null;
+  const favoritePending =
+    favoriteActionPending || favoriteMetadataStatus === "loading";
+
+  const loadFavorites = useCallback(async () => {
+    const requestId = favoriteMetadataRequestIdRef.current + 1;
+    favoriteMetadataRequestIdRef.current = requestId;
+    setFavoriteMetadataStatus("loading");
+
+    try {
+      const nextFavorites = await api.listFavorites();
+      if (favoriteMetadataRequestIdRef.current !== requestId) {
+        return false;
+      }
+
+      setFavorites(nextFavorites);
+      setFavoriteMetadataStatus("ready");
+      return true;
+    } catch {
+      if (favoriteMetadataRequestIdRef.current !== requestId) {
+        return false;
+      }
+
+      setFavoriteMetadataStatus("failed");
+      toast.warning(messages.serverList.toasts.favoritesMetadataUnavailable);
+      return false;
+    }
+  }, [messages.serverList.toasts.favoritesMetadataUnavailable]);
 
   useEffect(() => {
     if (!server) {
@@ -92,27 +130,12 @@ export function ServerDetailWindowPage() {
   }, []);
 
   useEffect(() => {
-    let isCurrent = true;
-
-    const loadFavorites = async () => {
-      try {
-        const nextFavorites = await api.listFavorites();
-        if (isCurrent) {
-          setFavorites(nextFavorites);
-        }
-      } catch {
-        if (isCurrent) {
-          toast.warning(messages.serverList.toasts.favoritesMetadataUnavailable);
-        }
-      }
-    };
-
     void loadFavorites();
 
     return () => {
-      isCurrent = false;
+      favoriteMetadataRequestIdRef.current += 1;
     };
-  }, [messages.serverList.toasts.favoritesMetadataUnavailable]);
+  }, [loadFavorites]);
 
   const handleConnect = async (nextServer: ServerSnapshot) => {
     if (connectPending) {
@@ -135,16 +158,21 @@ export function ServerDetailWindowPage() {
   };
 
   const handleToggleFavorite = async (nextServer: ServerSnapshot) => {
+    if (favoriteMetadataStatus !== "ready") {
+      await loadFavorites();
+      return;
+    }
+
     if (!favorite) {
       setFavoriteDraft(createFavoriteDraftFromSnapshot(nextServer));
       return;
     }
 
-    if (favoritePending) {
+    if (favoriteActionPending) {
       return;
     }
 
-    setFavoritePending(true);
+    setFavoriteActionPending(true);
     try {
       await api.deleteFavorite(favorite.id);
       setFavorites((current) => current.filter((item) => item.id !== favorite.id));
@@ -159,7 +187,7 @@ export function ServerDetailWindowPage() {
       );
       toast.error(message);
     } finally {
-      setFavoritePending(false);
+      setFavoriteActionPending(false);
     }
   };
 
@@ -211,7 +239,7 @@ export function ServerDetailWindowPage() {
         onUpdateServer={handleUpdateServer}
         connectPending={connectPending}
         favoritePending={favoritePending}
-        isFavorite={favorite !== null}
+        isFavorite={isFavorite}
       />
       <FavoriteGroupPickerDialog
         open={favoriteDraft !== null}

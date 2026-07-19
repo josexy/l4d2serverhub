@@ -370,6 +370,17 @@ export function FavoriteGroupPickerDialog({
                           setNewGroupName(event.target.value);
                           setNewGroupNameError(null);
                         }}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== "Enter" ||
+                            event.nativeEvent.isComposing
+                          ) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          void handleCreateGroup();
+                        }}
                       />
                     </label>
                     {newGroupNameError ? (
