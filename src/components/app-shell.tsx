@@ -4,7 +4,6 @@ import { History, Info, Server, Settings, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/app-preferences";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import appIconUrl from "../../src-tauri/icons/128x128.png";
@@ -59,12 +58,10 @@ export function AppShell({
           <div className="app-brand-mark">
             <img src={appIconUrl} alt="" aria-hidden="true" />
           </div>
-          <div className="min-w-0">
+          <div className="app-brand-copy">
             <p className="app-brand-title">{messages.appShell.brandTitle}</p>
           </div>
         </div>
-
-        <Separator />
 
         <nav className="app-nav" aria-label="Sections">
           {navigationItems.map((item) => {
@@ -78,7 +75,7 @@ export function AppShell({
                 type="button"
                 variant={isSelected ? "secondary" : "ghost"}
                 className={cn(
-                  "app-nav-button h-12 min-h-12",
+                  "app-nav-button h-10 min-h-10",
                   isSelected && "is-selected",
                 )}
                 aria-label={copy.label}
@@ -86,7 +83,7 @@ export function AppShell({
                 onClick={() => onPageChange(item.id)}
               >
                 <Icon data-icon="inline-start" />
-                <span className="min-w-0 flex-1 text-left">
+                <span className="app-nav-copy min-w-0 flex-1 text-left">
                   <span className="block truncate">{copy.label}</span>
                   <span className="app-nav-description" aria-hidden="true">
                     {copy.description}
@@ -99,7 +96,9 @@ export function AppShell({
 
         <div className="app-sidebar-footer">
           <div className="app-status-dot" aria-hidden="true" />
-          <span className="truncate">{messages.appShell.readyStatus}</span>
+          <span className="app-status-copy truncate">
+            {messages.appShell.readyStatus}
+          </span>
         </div>
       </aside>
 

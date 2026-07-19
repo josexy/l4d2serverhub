@@ -175,7 +175,7 @@
 @layer components {
   .app-shell {
     display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
     height: 100vh;
     min-height: 0;
     overflow: hidden;
@@ -186,22 +186,51 @@
 
   .app-sidebar {
     display: flex;
+    position: relative;
+    z-index: 1;
+    box-sizing: border-box;
+    width: 64px;
     min-width: 0;
     min-height: 0;
     flex-direction: column;
     gap: 14px;
+    overflow: hidden;
     border-right: 1px solid var(--sidebar-border);
     background:
       linear-gradient(180deg, var(--shell-sidebar-elevated), var(--shell-sidebar));
-    padding: 14px;
+    padding: 14px 12px;
+    transition: width 160ms ease, box-shadow 160ms ease;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) {
+    z-index: 10;
+    width: 240px;
+    box-shadow: 10px 0 20px color-mix(in oklab, var(--foreground) 14%, transparent);
   }
 
   .app-brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 46px;
+    min-height: 40px;
     min-width: 0;
+  }
+
+  .app-brand-copy,
+  .app-nav-copy,
+  .app-status-copy {
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-width 160ms ease, opacity 120ms ease;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-brand-copy,
+  .app-sidebar:is(:hover, :focus-within) .app-nav-copy,
+  .app-sidebar:is(:hover, :focus-within) .app-status-copy {
+    max-width: 170px;
+    opacity: 1;
   }
 
   .app-brand-mark {
@@ -253,13 +282,28 @@
   }
 
   .app-nav-button {
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    gap: 0;
+    overflow: hidden;
+    border-radius: 7px;
+    padding: 0;
+    color: var(--sidebar-foreground);
+    transition: width 160ms ease, gap 160ms ease, padding 160ms ease;
+  }
+
+  .app-nav-button svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-nav-button {
     justify-content: flex-start;
     width: 100%;
-    height: 48px;
     gap: 10px;
-    border-radius: 7px;
     padding: 7px 10px;
-    color: var(--sidebar-foreground);
   }
 
   .app-nav-button.is-selected {
@@ -282,15 +326,30 @@
   .app-sidebar-footer {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 34px;
+    justify-content: center;
+    width: 40px;
+    min-height: 40px;
     min-width: 0;
-    border: 1px solid var(--sidebar-border);
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid transparent;
     border-radius: 7px;
-    background: var(--shell-sidebar-elevated);
-    padding: 0 10px;
+    background: transparent;
+    padding: 0;
     color: var(--muted-foreground);
     font-size: 0.75rem;
+    transition: width 160ms ease, min-height 160ms ease, gap 160ms ease,
+      padding 160ms ease, border-color 160ms ease, background-color 160ms ease;
+  }
+
+  .app-sidebar:is(:hover, :focus-within) .app-sidebar-footer {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 34px;
+    gap: 8px;
+    border-color: var(--sidebar-border);
+    background: var(--shell-sidebar-elevated);
+    padding: 0 10px;
   }
 
   .app-status-dot {
@@ -334,6 +393,17 @@
     flex: 1;
     overflow: hidden;
     padding: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-sidebar,
+    .app-brand-copy,
+    .app-nav-copy,
+    .app-status-copy,
+    .app-nav-button,
+    .app-sidebar-footer {
+      transition: none;
+    }
   }
 
   .page-layout {
@@ -487,14 +557,6 @@
 }
 
 @media (max-width: 860px) {
-  .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
-  .app-sidebar {
-    padding: 12px;
-  }
-
   .app-main {
     padding: 12px;
   }
