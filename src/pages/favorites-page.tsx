@@ -418,6 +418,8 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [deleteFavorite, setDeleteFavorite] = useState<Favorite | null>(null);
   const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
+  const [cleanErrorDialogOpen, setCleanErrorDialogOpen] = useState(false);
+  const [cleaningErrors, setCleaningErrors] = useState(false);
   const [moveSelectionOpen, setMoveSelectionOpen] = useState(false);
   const [moveTargetGroupId, setMoveTargetGroupId] = useState("");
   const [movingFavoriteIds, setMovingFavoriteIds] = useState<Set<string>>(
@@ -470,6 +472,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const renamingGroupIdRef = useRef<string | null>(null);
   const movingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const deletingFavoriteIdsRef = useRef<Set<string>>(new Set());
+  const cleaningErrorsRef = useRef(false);
   const deletingGroupIdRef = useRef<string | null>(null);
   const pendingConnectAddressRef = useRef<string | null>(null);
   const selectedDetailFavoriteIdRef = useRef<string | null>(null);
@@ -1029,14 +1032,17 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     }
   };
 
-  const deleteFavoriteIds = async (ids: string[]) => {
+  const deleteFavoriteIds = async (
+    ids: string[],
+    successMessage?: string,
+  ): Promise<boolean> => {
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.length === 0) {
-      return;
+      return false;
     }
 
     if (uniqueIds.some((id) => deletingFavoriteIdsRef.current.has(id))) {
-      return;
+      return false;
     }
 
     deletingFavoriteIdsRef.current = new Set([
@@ -1067,16 +1073,19 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       setDeleteFavorite(null);
       setDeleteSelectionOpen(false);
       toast.success(
-        uniqueIds.length > 1
-          ? messages.favorites.toasts.deletedMany(uniqueIds.length)
-          : messages.favorites.toasts.deleted,
+        successMessage ??
+          (uniqueIds.length > 1
+            ? messages.favorites.toasts.deletedMany(uniqueIds.length)
+            : messages.favorites.toasts.deleted),
       );
+      return true;
     } catch (deleteError) {
       const message = formatCommandError(
         deleteError,
         messages.favorites.toasts.deleteFailed,
       );
       toast.error(message);
+      return false;
     } finally {
       for (const id of uniqueIds) {
         deletingFavoriteIdsRef.current.delete(id);
@@ -1098,6 +1107,46 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       currentFavoriteIds.has(id),
     );
     await deleteFavoriteIds(ids);
+  };
+
+  const handleCleanErrorFavorites = async () => {
+    if (cleaningErrorsRef.current || currentFavorites.length === 0) {
+      return;
+    }
+
+    const targets = currentFavorites;
+    cleaningErrorsRef.current = true;
+    setCleaningErrors(true);
+
+    try {
+      const snapshotsByAddress = await refreshCurrentGroupDetails();
+      if (!snapshotsByAddress) {
+        return;
+      }
+
+      const errorIds = targets
+        .filter((favorite) =>
+          snapshotsByAddress.get(favorite.address)?.lastQueryError?.trim(),
+        )
+        .map((favorite) => favorite.id);
+
+      if (errorIds.length === 0) {
+        setCleanErrorDialogOpen(false);
+        toast.info(messages.favorites.toasts.noErrorRecords);
+        return;
+      }
+
+      const deleted = await deleteFavoriteIds(
+        errorIds,
+        messages.favorites.toasts.errorRecordsCleaned(errorIds.length),
+      );
+      if (deleted) {
+        setCleanErrorDialogOpen(false);
+      }
+    } finally {
+      cleaningErrorsRef.current = false;
+      setCleaningErrors(false);
+    }
   };
 
   const handleMoveSelection = async () => {
@@ -1209,7 +1258,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     requestedPageSize = favoritePageSize,
   ) => {
     if (refreshingDetailsRef.current) {
-      return;
+      return null;
     }
 
     const targets = currentFavorites;
@@ -1223,7 +1272,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     ];
 
     if (targets.length === 0) {
-      return;
+      return null;
     }
 
     const runId = refreshRunIdRef.current + 1;
@@ -1340,7 +1389,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       );
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       for (const snapshot of snapshotsByAddress.values()) {
@@ -1351,7 +1400,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       await Promise.allSettled(persistTasks);
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const invalidIds = targets
@@ -1360,7 +1409,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       await Promise.all(invalidIds.map((id) => api.deleteFavorite(id)));
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const invalidIdSet = new Set(invalidIds);
@@ -1392,9 +1441,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
           setSelectedServer(snapshot);
         }
       }
+
+      return snapshotsByAddress;
     } catch (refreshError) {
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const message = formatCommandError(
@@ -1405,6 +1456,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         new Map(targets.map((favorite) => [favorite.id, message])),
       );
       toast.error(message);
+      return null;
     } finally {
       if (refreshRunIdRef.current === runId) {
         refreshingDetailsRef.current = false;
@@ -1739,7 +1791,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
             type="button"
             variant="outline"
             size="sm"
-            disabled={loading || refreshingDetails}
+            disabled={loading || refreshingDetails || cleaningErrors}
             onClick={() => void refreshCurrentGroupDetails()}
           >
             <RefreshCw
@@ -1836,7 +1888,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                               aria-label={messages.favorites.actions.deleteGroup(
                                 groupName,
                               )}
-                              disabled={deletingGroupId !== null}
+                              disabled={deletingGroupId !== null || cleaningErrors}
                               onClick={() => setDeleteGroup(group)}
                             >
                               <Trash2 aria-hidden="true" />
@@ -1876,7 +1928,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={movingSelection}
+                        disabled={movingSelection || cleaningErrors}
                         onClick={() => setMoveSelectionOpen(true)}
                       >
                         <FolderOpen data-icon="inline-start" />
@@ -1886,7 +1938,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         type="button"
                         size="sm"
                         variant="destructive"
-                        disabled={deletingFavoriteIds.size > 0 || movingSelection}
+                        disabled={
+                          deletingFavoriteIds.size > 0 ||
+                          movingSelection ||
+                          cleaningErrors
+                        }
                         onClick={() => setDeleteSelectionOpen(true)}
                       >
                         <Trash2 data-icon="inline-start" />
@@ -1894,6 +1950,31 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       </Button>
                     </>
                   ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      loading ||
+                      currentFavorites.length === 0 ||
+                      refreshingDetails ||
+                      cleaningErrors ||
+                      deletingFavoriteIds.size > 0
+                    }
+                    onClick={() => setCleanErrorDialogOpen(true)}
+                  >
+                    {cleaningErrors ? (
+                      <RefreshCw
+                        data-icon="inline-start"
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Trash2 data-icon="inline-start" />
+                    )}
+                    {cleaningErrors
+                      ? messages.favorites.actions.cleaningErrors
+                      : messages.favorites.actions.cleanErrors}
+                  </Button>
                   {selectedGroup.id !== DEFAULT_GROUP_ID ? (
                     <>
                       <Button
@@ -1901,7 +1982,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         size="sm"
                         variant="outline"
                         disabled={
-                          renamingGroupId !== null || deletingGroupId !== null
+                          renamingGroupId !== null ||
+                          deletingGroupId !== null ||
+                          cleaningErrors
                         }
                         onClick={() => openRenameGroupDialog(selectedGroup)}
                       >
@@ -1913,7 +1996,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         size="sm"
                         variant="outline"
                         disabled={
-                          renamingGroupId !== null || deletingGroupId !== null
+                          renamingGroupId !== null ||
+                          deletingGroupId !== null ||
+                          cleaningErrors
                         }
                         onClick={() => setDeleteGroup(selectedGroup)}
                       >
@@ -2272,6 +2357,48 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         onOpenChange={setEditorOpen}
         onSubmit={(input) => void handleFavoriteSubmit(input)}
       />
+
+      <Dialog
+        open={isActive && cleanErrorDialogOpen}
+        onOpenChange={(open) => {
+          if (!cleaningErrors) {
+            setCleanErrorDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{messages.favorites.cleanErrorsDialogTitle}</DialogTitle>
+            <DialogDescription>
+              {messages.favorites.cleanErrorsDialogDescription}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={cleaningErrors}
+              onClick={() => setCleanErrorDialogOpen(false)}
+            >
+              {messages.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                cleaningErrors ||
+                refreshingDetails ||
+                currentFavorites.length === 0
+              }
+              onClick={() => void handleCleanErrorFavorites()}
+            >
+              {cleaningErrors
+                ? messages.favorites.actions.cleaningErrors
+                : messages.favorites.actions.cleanErrors}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ServerDetailPanel
         open={isActive && detailOpen}

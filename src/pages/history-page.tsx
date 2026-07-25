@@ -477,6 +477,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [deleteSelectionOpen, setDeleteSelectionOpen] = useState(false);
+  const [cleanErrorDialogOpen, setCleanErrorDialogOpen] = useState(false);
+  const [cleaningErrors, setCleaningErrors] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(
@@ -510,6 +512,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   const pendingConnectAddressRef = useRef<string | null>(null);
   const pendingFavoriteAddressRef = useRef<string | null>(null);
   const deletingIdsRef = useRef<Set<string>>(new Set());
+  const cleaningErrorsRef = useRef(false);
   const clearingRef = useRef(false);
   const historyLoadedRef = useRef(false);
   const refreshRunIdRef = useRef(0);
@@ -776,7 +779,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     requestedPageSize = historyPageSize,
   ) => {
     if (refreshingDetailsRef.current) {
-      return;
+      return null;
     }
 
     const targets = sourceRows;
@@ -788,7 +791,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
 
     if (targets.length === 0) {
       toast.info(messages.history.toasts.refreshUnavailable);
-      return;
+      return null;
     }
 
     const runId = refreshRunIdRef.current + 1;
@@ -896,7 +899,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       );
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       for (const snapshot of snapshotsByAddress.values()) {
@@ -907,7 +910,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       await Promise.allSettled(persistTasks);
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const invalidRows = targets.filter(
@@ -919,7 +922,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       await Promise.all(invalidIds.map((id) => api.deleteHistory(id)));
 
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const invalidIdSet = new Set(invalidIds);
@@ -956,9 +959,11 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
           setSelectedServer(snapshot);
         }
       }
+
+      return snapshotsByAddress;
     } catch (refreshError) {
       if (refreshRunIdRef.current !== runId) {
-        return;
+        return null;
       }
 
       const message = formatCommandError(
@@ -967,6 +972,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       );
       setHistoryRefreshErrors(new Map(targets.map((row) => [row.key, message])));
       toast.error(message);
+      return null;
     } finally {
       if (refreshRunIdRef.current === runId) {
         refreshingDetailsRef.current = false;
@@ -1066,14 +1072,17 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     }
   };
 
-  const deleteHistoryIds = async (ids: string[]) => {
+  const deleteHistoryIds = async (
+    ids: string[],
+    successMessage?: string,
+  ): Promise<boolean> => {
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.length === 0) {
-      return;
+      return false;
     }
 
     if (uniqueIds.some((id) => deletingIdsRef.current.has(id))) {
-      return;
+      return false;
     }
 
     deletingIdsRef.current = new Set([...deletingIdsRef.current, ...uniqueIds]);
@@ -1104,16 +1113,19 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
       }
       setDeleteSelectionOpen(false);
       toast.success(
-        uniqueIds.length > 1
-          ? messages.history.toasts.deletedMany(uniqueIds.length)
-          : messages.history.toasts.deleted,
+        successMessage ??
+          (uniqueIds.length > 1
+            ? messages.history.toasts.deletedMany(uniqueIds.length)
+            : messages.history.toasts.deleted),
       );
+      return true;
     } catch (deleteError) {
       const message = formatCommandError(
         deleteError,
         messages.history.toasts.deleteFailed,
       );
       toast.error(message);
+      return false;
     } finally {
       uniqueIds.forEach((id) => deletingIdsRef.current.delete(id));
       setDeletingIds(new Set(deletingIdsRef.current));
@@ -1149,6 +1161,51 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
     } finally {
       clearingRef.current = false;
       setClearing(false);
+    }
+  };
+
+  const handleCleanErrorHistory = async () => {
+    if (cleaningErrorsRef.current || history.length === 0) {
+      return;
+    }
+
+    cleaningErrorsRef.current = true;
+    setCleaningErrors(true);
+
+    try {
+      const nextHistory = await loadHistory(false);
+      if (!nextHistory) {
+        return;
+      }
+
+      const targetRows = dedupeHistoryRows(nextHistory);
+      const snapshotsByAddress = await refreshHistoryDetails(targetRows);
+      if (!snapshotsByAddress) {
+        return;
+      }
+
+      const errorIds = targetRows.flatMap((row) =>
+        snapshotsByAddress.get(row.address)?.lastQueryError?.trim()
+          ? row.records.map((record) => record.id)
+          : [],
+      );
+
+      if (errorIds.length === 0) {
+        setCleanErrorDialogOpen(false);
+        toast.info(messages.history.toasts.noErrorRecords);
+        return;
+      }
+
+      const deleted = await deleteHistoryIds(
+        errorIds,
+        messages.history.toasts.errorRecordsCleaned(errorIds.length),
+      );
+      if (deleted) {
+        setCleanErrorDialogOpen(false);
+      }
+    } finally {
+      cleaningErrorsRef.current = false;
+      setCleaningErrors(false);
     }
   };
 
@@ -1355,7 +1412,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
               type="button"
               variant="destructive"
               size="sm"
-              disabled={deletingIds.size > 0}
+              disabled={deletingIds.size > 0 || cleaningErrors}
               onClick={() => setDeleteSelectionOpen(true)}
             >
               <Trash2 data-icon="inline-start" />
@@ -1366,7 +1423,30 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
             type="button"
             variant="outline"
             size="sm"
-            disabled={loading || refreshingDetails}
+            disabled={
+              history.length === 0 ||
+              loading ||
+              refreshingDetails ||
+              cleaningErrors ||
+              deletingIds.size > 0 ||
+              clearing
+            }
+            onClick={() => setCleanErrorDialogOpen(true)}
+          >
+            {cleaningErrors ? (
+              <RefreshCw data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Trash2 data-icon="inline-start" />
+            )}
+            {cleaningErrors
+              ? messages.history.actions.cleaningErrors
+              : messages.history.actions.cleanErrors}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || refreshingDetails || cleaningErrors}
             onClick={() => void handleRefreshHistory()}
           >
             <RefreshCw
@@ -1379,7 +1459,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
             type="button"
             variant="destructive"
             size="sm"
-            disabled={history.length === 0 || loading}
+            disabled={history.length === 0 || loading || cleaningErrors}
             onClick={() => setClearDialogOpen(true)}
           >
             <Trash2 data-icon="inline-start" />
@@ -1759,6 +1839,46 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
           setFavorites((current) => [...current, favorite]);
         }}
       />
+
+      <Dialog
+        open={isActive && cleanErrorDialogOpen}
+        onOpenChange={(open) => {
+          if (!cleaningErrors) {
+            setCleanErrorDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{messages.history.cleanErrorsDialogTitle}</DialogTitle>
+            <DialogDescription>
+              {messages.history.cleanErrorsDialogDescription}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={cleaningErrors}
+              onClick={() => setCleanErrorDialogOpen(false)}
+            >
+              {messages.common.cancel}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                cleaningErrors || refreshingDetails || history.length === 0
+              }
+              onClick={() => void handleCleanErrorHistory()}
+            >
+              {cleaningErrors
+                ? messages.history.actions.cleaningErrors
+                : messages.history.actions.cleanErrors}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isActive && clearDialogOpen} onOpenChange={setClearDialogOpen}>
         <DialogContent>

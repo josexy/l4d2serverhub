@@ -211,6 +211,9 @@ export const zhCn: Messages = {
     deleteGroupDialogFallback: "该分组不能删除。",
     deleteGroupDialogDescription: (name: string, count: number) =>
       `确定要删除 ${name} 分组及其中 ${count} 条收藏吗？`,
+    cleanErrorsDialogTitle: "清理错误收藏",
+    cleanErrorsDialogDescription:
+      "将先刷新当前分组的服务器状态，仅删除刷新后状态仍为“错误”的收藏，是否继续？",
     columns: {
       select: "选择",
       server: "服务器",
@@ -235,6 +238,8 @@ export const zhCn: Messages = {
       deleted: "收藏已删除。",
       deletedMany: (count: number) => `已删除 ${count} 条收藏。`,
       deleteFailed: "无法删除收藏。",
+      noErrorRecords: "刷新后未发现错误状态的收藏。",
+      errorRecordsCleaned: (count: number) => `已清理 ${count} 条错误状态收藏。`,
       movedMany: (count: number) => `已移动 ${count} 条收藏。`,
       moveFailed: "无法移动所选收藏。",
       moveDuplicateAddress: "目标分组已包含一个或多个所选服务器。",
@@ -253,6 +258,8 @@ export const zhCn: Messages = {
       select: (name: string) => `选择 ${name}`,
       moveToGroup: "移动到分组",
       deleteSelected: "删除所选",
+      cleanErrors: "清理错误",
+      cleaningErrors: "正在刷新并清理...",
       renameCurrentGroup: "重命名分组",
       deleteCurrentGroup: "删除分组",
       deleteGroup: (name: string) => `删除分组 ${name}`,
@@ -273,6 +280,9 @@ export const zhCn: Messages = {
     emptyDescription: "从服务器列表发起的连接会显示在这里。",
     clearDialogTitle: "清空历史",
     clearDialogDescription: "确定要删除全部历史记录吗？",
+    cleanErrorsDialogTitle: "清理错误历史",
+    cleanErrorsDialogDescription:
+      "将先刷新历史服务器状态，仅删除刷新后状态仍为“错误”的服务器记录，是否继续？",
     deleteSelectedDialogTitle: "删除所选历史",
     deleteSelectedDialogDescription: (count: number) =>
       `确定要删除所选 ${count} 个服务器的全部历史记录吗？`,
@@ -299,11 +309,15 @@ export const zhCn: Messages = {
       clearFailed: "无法清空历史。",
       refreshUnavailable: "暂无可刷新的服务器详情。",
       snapshotSaveFailed: "无法保存刷新的历史详情。",
+      noErrorRecords: "刷新后未发现错误状态的历史记录。",
+      errorRecordsCleaned: (count: number) => `已清理 ${count} 条错误状态历史记录。`,
     },
     actions: {
       selectAll: "选择全部历史服务器",
       select: (name: string) => `选择 ${name}`,
       deleteSelected: "删除所选",
+      cleanErrors: "清理错误",
+      cleaningErrors: "正在刷新并清理...",
       reconnect: (name: string) => `重新连接 ${name}`,
       addFavorite: (name: string) => `将 ${name} 加入收藏`,
       favoriteExists: "已在收藏中",
