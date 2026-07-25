@@ -209,6 +209,9 @@ export const en = {
     deleteGroupDialogFallback: "This group cannot be deleted.",
     deleteGroupDialogDescription: (name: string, count: number) =>
       `Delete ${name} and its ${count} saved favorites?`,
+    cleanErrorsDialogTitle: "Clean error favorites",
+    cleanErrorsDialogDescription:
+      "Refresh the current group, then delete only favorites whose status is still Error?",
     columns: {
       select: "Select",
       server: "Server",
@@ -234,6 +237,9 @@ export const en = {
       deleted: "Favorite deleted.",
       deletedMany: (count: number) => `${count} favorites deleted.`,
       deleteFailed: "Could not delete the favorite.",
+      noErrorRecords: "No error favorites were found after refreshing.",
+      errorRecordsCleaned: (count: number) =>
+        `${count} error favorites cleaned.`,
       movedMany: (count: number) => `${count} favorites moved.`,
       moveFailed: "Could not move the selected favorites.",
       moveDuplicateAddress:
@@ -253,6 +259,8 @@ export const en = {
       select: (name: string) => `Select ${name}`,
       moveToGroup: "Move to group",
       deleteSelected: "Delete selected",
+      cleanErrors: "Clean errors",
+      cleaningErrors: "Refreshing and cleaning...",
       renameCurrentGroup: "Rename group",
       deleteCurrentGroup: "Delete group",
       deleteGroup: (name: string) => `Delete group ${name}`,
@@ -273,6 +281,9 @@ export const en = {
     emptyDescription: "Connections launched from the server list will appear here.",
     clearDialogTitle: "Clear history",
     clearDialogDescription: "Remove all history records?",
+    cleanErrorsDialogTitle: "Clean error history",
+    cleanErrorsDialogDescription:
+      "Refresh history, then delete all records for servers whose status is still Error?",
     deleteSelectedDialogTitle: "Delete selected history",
     deleteSelectedDialogDescription: (count: number) =>
       `Remove all history records for ${count} selected servers?`,
@@ -299,11 +310,16 @@ export const en = {
       clearFailed: "Could not clear history.",
       refreshUnavailable: "No history records have server details to refresh yet.",
       snapshotSaveFailed: "Could not save the refreshed history details.",
+      noErrorRecords: "No error history records were found after refreshing.",
+      errorRecordsCleaned: (count: number) =>
+        `${count} error history records cleaned.`,
     },
     actions: {
       selectAll: "Select all history servers",
       select: (name: string) => `Select ${name}`,
       deleteSelected: "Delete selected",
+      cleanErrors: "Clean errors",
+      cleaningErrors: "Refreshing and cleaning...",
       reconnect: (name: string) => `Reconnect to ${name}`,
       addFavorite: (name: string) => `Add ${name} to favorites`,
       favoriteExists: "Already in favorites",
