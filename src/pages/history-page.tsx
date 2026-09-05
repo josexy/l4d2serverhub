@@ -11,6 +11,7 @@ import { ExternalLink, History, RefreshCw, Star, Trash2 } from "lucide-react";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import { ServerTableScrollArea } from "@/components/server-table-scroll-area";
 import {
   ServerLatency,
   ServerPopulation,
@@ -1492,7 +1493,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
+          <ServerTableScrollArea>
             <table
               data-slot="table"
               className="server-data-table w-full table-fixed caption-bottom text-[13px]"
@@ -1792,7 +1793,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                 })}
               </TableBody>
             </table>
-          </div>
+          </ServerTableScrollArea>
         )}
         {rows.length > 0 ? (
           <TablePagination

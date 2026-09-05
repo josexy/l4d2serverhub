@@ -22,9 +22,8 @@ import {
 } from "@/components/server-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ServerTableScrollArea } from "@/components/server-table-scroll-area";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -328,9 +327,10 @@ export function ServerTable({
   }
 
   return (
-    <ScrollArea className="h-full [&_[data-slot=table-container]]:overflow-visible">
-      <Table
-        className="server-data-table table-fixed text-[13px]"
+    <ServerTableScrollArea className="h-full">
+      <table
+        data-slot="table"
+        className="server-data-table w-full table-fixed caption-bottom text-[13px]"
         style={{ minWidth: `${tableMinWidth}px` }}
       >
         <colgroup>
@@ -579,7 +579,7 @@ export function ServerTable({
             );
           })}
         </TableBody>
-      </Table>
-    </ScrollArea>
+      </table>
+    </ServerTableScrollArea>
   );
 }

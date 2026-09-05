@@ -24,6 +24,7 @@ import {
 import { FavoriteEditorDialog } from "@/components/favorite-editor-dialog";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import { ServerTableScrollArea } from "@/components/server-table-scroll-area";
 import {
   ServerLatency,
   ServerPopulation,
@@ -2060,7 +2061,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                   </div>
                 </div>
               ) : (
-                <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
+                <ServerTableScrollArea>
                   <table
                     data-slot="table"
                     className="server-data-table w-full table-fixed caption-bottom text-[13px]"
@@ -2370,7 +2371,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       })}
                     </TableBody>
                   </table>
-                </div>
+                </ServerTableScrollArea>
               )}
               {currentFavorites.length > 0 ? (
                 <TablePagination
