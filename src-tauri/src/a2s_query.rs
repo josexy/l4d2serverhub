@@ -298,7 +298,8 @@ impl SavedSnapshotWorker {
                     );
                     self.queue.push_back(job);
                 }
-                Err((target, error)) => {
+                Err(failure) => {
+                    let (target, error) = *failure;
                     log::warn!(
                         "A2S saved snapshot target rejected before query: index={}, address='{}', error={}",
                         index,
@@ -350,15 +351,15 @@ impl SavedSnapshotWorker {
         &self,
         index: usize,
         target: SavedServerSnapshotQueryTarget,
-    ) -> Result<SavedSnapshotJob, (SavedServerSnapshotQueryTarget, AppError)> {
+    ) -> Result<SavedSnapshotJob, Box<(SavedServerSnapshotQueryTarget, AppError)>> {
         let parsed = match steam_launcher::parse_server_address(&target.address) {
             Ok(parsed) => parsed,
-            Err(error) => return Err((target, error)),
+            Err(error) => return Err(Box::new((target, error))),
         };
         let normalized_address = parsed.as_string();
         let socket_address = match resolve_socket_address(&normalized_address).await {
             Ok(address) => address,
-            Err(error) => return Err((target, error)),
+            Err(error) => return Err(Box::new((target, error))),
         };
 
         Ok(SavedSnapshotJob {
