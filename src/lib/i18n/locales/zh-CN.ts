@@ -28,6 +28,7 @@ export const zhCn: Messages = {
   },
   appShell: {
     brandTitle: "L4D2 Server Hub",
+    switchTheme: (current: string, next: string) => `当前主题：${current}，切换为${next}`,
     pageLabels: {
       servers: "服务器",
       favorites: "收藏",
@@ -179,7 +180,7 @@ export const zhCn: Messages = {
   },
   favorites: {
     eyebrow: "收藏",
-    title: "固定服务器",
+    title: "收藏服务器",
     savedLabel: (count: number) => `${count} 条`,
     selectedLabel: (count: number) => `已选择 ${count} 条`,
     emptyTitle: "还没有收藏",

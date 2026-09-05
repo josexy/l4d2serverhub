@@ -129,10 +129,16 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
     settings.a2sTimeoutMs,
     settings.serverDetailsQueryMode,
     settings.serverDetailsDisplayMode,
-    settings.theme,
     settings.logging.enabled,
     settings.logging.level,
   ]);
+
+  // The sidebar theme shortcut must not discard unrelated, unsaved form edits.
+  useEffect(() => {
+    setDraft((current) => current.theme === settings.theme
+      ? current
+      : { ...current, theme: settings.theme });
+  }, [settings.theme]);
 
   const validation = useMemo(() => {
     const errors: SettingsValidation["errors"] = {};

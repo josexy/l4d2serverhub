@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { History, Info, Server, Settings, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Tooltip,
   TooltipContent,
@@ -107,9 +108,9 @@ export function AppShell({
                 </Tooltip>
               );
             })}
+            <ThemeToggle />
           </nav>
         </TooltipProvider>
-
       </aside>
 
       <section className="app-content">

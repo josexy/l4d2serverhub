@@ -26,6 +26,7 @@ export const en = {
   },
   appShell: {
     brandTitle: "L4D2 Server Hub",
+    switchTheme: (current: string, next: string) => `Theme: ${current}. Switch to ${next}.`,
     pageLabels: {
       servers: "Servers",
       favorites: "Favorites",
@@ -177,7 +178,7 @@ export const en = {
   },
   favorites: {
     eyebrow: "Favorites",
-    title: "Pinned servers",
+    title: "Favorite servers",
     savedLabel: (count: number) => `${count} saved`,
     selectedLabel: (count: number) => `${count} selected`,
     emptyTitle: "No favorites yet",
