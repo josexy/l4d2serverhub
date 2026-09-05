@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  Eye,
   ExternalLink,
   RefreshCw,
   ShieldCheck,
@@ -16,6 +15,11 @@ import {
 
 import { useI18n } from "@/lib/app-preferences";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import {
+  ServerLatency,
+  ServerPopulation,
+  ServerStatusBadge,
+} from "@/components/server-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -65,16 +69,16 @@ type ColumnWidths = Record<ResizableColumnId, number>;
 type ServerSortColumnId = ResizableColumnId;
 
 const FAVORITE_COLUMN_WIDTH = 44;
-const CONNECT_COLUMN_WIDTH = 108;
+const CONNECT_COLUMN_WIDTH = 100;
 
 const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
-  name: 260,
-  address: 176,
+  name: 270,
+  address: 172,
   map: 160,
-  players: 96,
-  ping: 96,
-  tags: 160,
-  status: 96,
+  players: 86,
+  ping: 90,
+  tags: 112,
+  status: 80,
 };
 
 const MIN_COLUMN_WIDTHS: ColumnWidths = {
@@ -84,7 +88,7 @@ const MIN_COLUMN_WIDTHS: ColumnWidths = {
   players: 84,
   ping: 84,
   tags: 112,
-  status: 88,
+  status: 76,
 };
 
 function clampColumnWidth(columnId: ResizableColumnId, width: number): number {
@@ -125,7 +129,10 @@ function ServerTags({
         <Badge
           key={tag}
           variant="outline"
-          className={cn("max-w-28 truncate", MODE_TAG_CLASS_NAMES[tag])}
+          className={cn(
+            "max-w-28 truncate rounded-md text-[11px]",
+            MODE_TAG_CLASS_NAMES[tag],
+          )}
         >
           {modeLabels[tag] ?? tag}
         </Badge>
@@ -148,10 +155,10 @@ function ResizeHandle({
 }) {
   return (
     <div
-      className="absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
+      className="column-resize-handle absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
       onPointerDown={onPointerDown}
     >
-      <div className="mx-auto h-full w-px bg-border/80 transition-colors hover:bg-primary" />
+      <div className="mx-auto h-full w-px" />
     </div>
   );
 }
@@ -176,9 +183,8 @@ export function ServerTable({
   const [sortState, setSortState] = useState<
     TableSortState<ServerSortColumnId>
   >(() => createDefaultSortState());
-  const [resizingColumn, setResizingColumn] = useState<ResizableColumnId | null>(
-    null,
-  );
+  const [resizingColumn, setResizingColumn] =
+    useState<ResizableColumnId | null>(null);
   const activeResizeRef = useRef<{
     columnId: ResizableColumnId;
     startX: number;
@@ -323,7 +329,10 @@ export function ServerTable({
 
   return (
     <ScrollArea className="h-full [&_[data-slot=table-container]]:overflow-visible">
-      <Table className="table-fixed" style={{ minWidth: `${tableMinWidth}px` }}>
+      <Table
+        className="server-data-table table-fixed text-[13px]"
+        style={{ minWidth: `${tableMinWidth}px` }}
+      >
         <colgroup>
           <col style={{ width: `${FAVORITE_COLUMN_WIDTH}px` }} />
           <col style={{ width: `${columnWidths.name}px` }} />
@@ -335,7 +344,7 @@ export function ServerTable({
           <col style={{ width: `${columnWidths.status}px` }} />
           <col style={{ width: `${CONNECT_COLUMN_WIDTH}px` }} />
         </colgroup>
-        <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background [&_th]:shadow-[inset_0_-1px_0_var(--border)]">
+        <TableHeader className="server-table-header">
           <TableRow>
             <TableHead
               className="w-11"
@@ -414,7 +423,7 @@ export function ServerTable({
               />
             </SortableTableHead>
             <TableHead
-              className="w-[108px] text-center"
+              className="server-actions w-[100px] text-center"
               aria-label={messages.serverTable.columns.connect}
             >
               {messages.serverTable.columns.connect}
@@ -425,16 +434,20 @@ export function ServerTable({
           {sortedServers.map((server) => {
             const status = getStatus(server, messages.serverTable.statuses);
             const isFavorite = favoriteAddresses.has(server.address);
-            const isFavoritePending = pendingFavoriteAddresses.has(server.address);
-            const isConnectPending = pendingConnectAddresses.has(server.address);
+            const isFavoritePending = pendingFavoriteAddresses.has(
+              server.address,
+            );
+            const isConnectPending = pendingConnectAddresses.has(
+              server.address,
+            );
             const isSelected = selectedAddress === server.address;
 
             return (
               <TableRow
                 key={server.address}
                 className={cn(
-                  "h-11 cursor-pointer",
-                  isSelected && "bg-muted/70",
+                  "h-12 cursor-pointer",
+                  isSelected && "bg-primary/5",
                 )}
                 aria-selected={isSelected}
                 onClick={() => onSelect(server)}
@@ -443,12 +456,18 @@ export function ServerTable({
                   <Button
                     type="button"
                     size="icon-xs"
-                    variant={isFavorite ? "secondary" : "ghost"}
+                    variant="ghost"
+                    className={cn(
+                      "server-favorite-button",
+                      isFavorite && "is-favorite",
+                    )}
                     aria-label={
                       isFavoritePending
                         ? messages.serverTable.aria.favoritePending
                         : isFavorite
-                          ? messages.serverTable.aria.removeFavorite(server.name)
+                          ? messages.serverTable.aria.removeFavorite(
+                              server.name,
+                            )
                           : messages.serverTable.aria.addFavorite(server.name)
                     }
                     disabled={isFavoritePending}
@@ -473,40 +492,52 @@ export function ServerTable({
                     variant="ghost"
                     size="sm"
                     className="h-auto w-full max-w-full justify-start gap-2 overflow-hidden px-1 py-0.5 text-left"
-                    aria-label={messages.serverTable.aria.openDetails(server.name)}
+                    aria-label={messages.serverTable.aria.openDetails(
+                      server.name,
+                    )}
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelect(server);
                     }}
                   >
-                    <Eye
-                      aria-hidden="true"
-                      className="shrink-0 text-muted-foreground"
-                    />
+                    <span
+                      className="min-w-0 flex-1 truncate font-medium"
+                      title={server.name}
+                    >
+                      {server.name}
+                    </span>
                     {server.vacSecured ? (
                       <ShieldCheck
                         aria-hidden="true"
-                        className="shrink-0 text-muted-foreground"
+                        className="size-3.5 shrink-0 text-muted-foreground/65"
                       />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {server.name}
-                    </span>
                   </Button>
                 </TableCell>
                 <TableCell>
-                  <div className="truncate font-mono text-xs">{server.address}</div>
+                  <div
+                    className="truncate font-mono text-xs text-muted-foreground"
+                    title={server.address}
+                  >
+                    {server.address}
+                  </div>
                 </TableCell>
                 <TableCell>
-                  <div className="truncate">{server.map || "-"}</div>
+                  <div className="truncate" title={server.map}>
+                    {server.map || "-"}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {server.players}/{server.maxPlayers}
+                  <ServerPopulation
+                    players={server.players}
+                    maxPlayers={server.maxPlayers}
+                  />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {server.pingMs === null
-                    ? messages.serverTable.pingUnknown
-                    : `${server.pingMs} ms`}
+                  <ServerLatency
+                    pingMs={server.pingMs}
+                    unknownLabel={messages.serverTable.pingUnknown}
+                  />
                 </TableCell>
                 <TableCell className="min-w-0">
                   <ServerTags
@@ -515,14 +546,16 @@ export function ServerTable({
                   />
                 </TableCell>
                 <TableCell>
-                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <ServerStatusBadge variant={status.variant}>
+                    {status.label}
+                  </ServerStatusBadge>
                 </TableCell>
-                <TableCell className="text-center">
+                <TableCell className="server-actions text-center">
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="w-[92px] justify-center border-primary/35 bg-primary/10 text-primary hover:border-primary/50 hover:bg-primary/18 hover:text-primary dark:bg-primary/12 dark:hover:bg-primary/20"
+                    className="w-20 justify-center border-primary/20 text-primary hover:border-primary/40 hover:text-primary"
                     aria-label={
                       isConnectPending
                         ? messages.serverTable.aria.connectPending(server.name)

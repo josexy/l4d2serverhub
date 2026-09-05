@@ -6,17 +6,16 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  ExternalLink,
-  History,
-  RefreshCw,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { ExternalLink, History, RefreshCw, Star, Trash2 } from "lucide-react";
 
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import {
+  ServerLatency,
+  ServerPopulation,
+  ServerStatusBadge,
+} from "@/components/server-metrics";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +66,7 @@ import type {
 const DEFAULT_ADDRESS_PAGE_SIZE = 50;
 const ADDRESS_PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SELECT_COLUMN_WIDTH = 44;
-const ACTIONS_COLUMN_WIDTH = 132;
+const ACTIONS_COLUMN_WIDTH = 104;
 
 type HistoryResizableColumnId =
   | "server"
@@ -94,24 +93,24 @@ type HistoryServerRow = {
 };
 
 const DEFAULT_COLUMN_WIDTHS: HistoryColumnWidths = {
-  server: 280,
-  address: 190,
-  map: 150,
-  players: 88,
+  server: 240,
+  address: 164,
+  map: 136,
+  players: 80,
   ping: 88,
-  tags: 160,
-  status: 96,
-  connected: 168,
+  tags: 96,
+  status: 80,
+  connected: 152,
 };
 
 const MIN_COLUMN_WIDTHS: HistoryColumnWidths = {
-  server: 220,
-  address: 170,
-  map: 120,
-  players: 84,
-  ping: 84,
-  tags: 112,
-  status: 88,
+  server: 180,
+  address: 148,
+  map: 112,
+  players: 76,
+  ping: 80,
+  tags: 80,
+  status: 76,
   connected: 148,
 };
 
@@ -181,13 +180,6 @@ async function resolveHistoryRowSnapshot(
     fallbackName: row.name,
   });
   return details.snapshot;
-}
-
-function formatPing(
-  pingMs: number | null | undefined,
-  unknownLabel: string,
-): string {
-  return pingMs === null || pingMs === undefined ? unknownLabel : `${pingMs} ms`;
 }
 
 function historySnapshotTarget(
@@ -308,10 +300,10 @@ function ResizeHandle({
 }) {
   return (
     <div
-      className="absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
+      className="column-resize-handle absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
       onPointerDown={onPointerDown}
     >
-      <div className="mx-auto h-full w-px bg-border/80 transition-colors hover:bg-primary" />
+      <div className="mx-auto h-full w-px" />
     </div>
   );
 }
@@ -335,7 +327,10 @@ function HistoryModeTags({
         <Badge
           key={tag}
           variant="outline"
-          className={cn("max-w-28 truncate", MODE_TAG_CLASS_NAMES[tag])}
+          className={cn(
+            "max-w-28 truncate rounded-md text-[11px]",
+            MODE_TAG_CLASS_NAMES[tag],
+          )}
         >
           {modeLabels[tag] ?? tag}
         </Badge>
@@ -1402,11 +1397,15 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
   return (
     <section className="page-layout">
       <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">{messages.history.eyebrow}</p>
+        <div className="page-title">
           <h2>{messages.history.title}</h2>
+          <div className="page-meta">
+            {selectedCurrentCount > 0
+              ? messages.history.selectedLabel(selectedCurrentCount)
+              : messages.history.rowsLabel(historyTotal)}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="page-actions">
           {selectedCurrentCount > 0 ? (
             <Button
               type="button"
@@ -1465,11 +1464,6 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
             <Trash2 data-icon="inline-start" />
             {messages.common.clear}
           </Button>
-          <div className="page-meta">
-            {selectedCurrentCount > 0
-              ? messages.history.selectedLabel(selectedCurrentCount)
-              : messages.history.rowsLabel(historyTotal)}
-          </div>
         </div>
       </div>
 
@@ -1501,7 +1495,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
           <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
             <table
               data-slot="table"
-              className="w-full table-fixed caption-bottom text-sm"
+              className="server-data-table w-full table-fixed caption-bottom text-[13px]"
               style={{ minWidth: `${tableMinWidth}px` }}
             >
               <colgroup>
@@ -1516,7 +1510,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                 <col style={{ width: `${columnWidths.connected}px` }} />
                 <col style={{ width: `${ACTIONS_COLUMN_WIDTH}px` }} />
               </colgroup>
-              <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background [&_th]:shadow-[inset_0_-1px_0_var(--border)]">
+              <TableHeader className="server-table-header">
                 <TableRow>
                   <TableHead
                     className="w-11"
@@ -1602,7 +1596,10 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                   </SortableTableHead>
                   <SortableTableHead
                     label={messages.history.columns.connected}
-                    activeDirection={activeSortDirection(sortState, "connected")}
+                    activeDirection={activeSortDirection(
+                      sortState,
+                      "connected",
+                    )}
                     getSortLabel={messages.tableSorting.aria.sortColumn}
                     onSort={() => handleSort("connected")}
                   >
@@ -1611,7 +1608,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                     />
                   </SortableTableHead>
                   <TableHead
-                    className="w-28 text-right"
+                    className="server-actions w-28 text-right"
                     aria-label={messages.history.columns.actions}
                   />
                 </TableRow>
@@ -1639,8 +1636,8 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                     <TableRow
                       key={row.key}
                       className={cn(
-                        "h-11 cursor-pointer",
-                        isSelected && "bg-muted/70",
+                        "h-12 cursor-pointer",
+                        isSelected && "bg-primary/5",
                       )}
                       aria-selected={isSelected}
                       onClick={() => void openHistoryDetails(row)}
@@ -1659,31 +1656,42 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                         />
                       </TableCell>
                       <TableCell className="min-w-0 py-1.5">
-                        <div className="truncate font-medium">{row.name}</div>
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+                          title={row.name}
+                        >
+                          {row.name}
+                        </button>
                         {row.connectionCount > 1 ? (
                           <div className="truncate text-xs text-muted-foreground">
-                            {messages.history.groupedRecordsLabel(row.connectionCount)}
+                            {messages.history.groupedRecordsLabel(
+                              row.connectionCount,
+                            )}
                           </div>
                         ) : null}
                       </TableCell>
-                      <TableCell className="truncate py-1.5 font-mono text-xs">
+                      <TableCell className="truncate py-1.5 font-mono text-xs text-muted-foreground">
                         {row.address}
                       </TableCell>
                       <TableCell className="truncate py-1.5">
                         {row.snapshot?.map || row.latest.map || "-"}
                       </TableCell>
                       <TableCell className="py-1.5 text-right tabular-nums">
-                        {row.snapshot
-                          ? `${row.snapshot.players}/${row.snapshot.maxPlayers}`
-                          : `${row.latest.players}/${row.latest.maxPlayers}`}
+                        <ServerPopulation
+                          players={(row.snapshot ?? row.latest).players}
+                          maxPlayers={(row.snapshot ?? row.latest).maxPlayers}
+                        />
                       </TableCell>
                       <TableCell className="py-1.5 text-right tabular-nums">
-                        {row.snapshot
-                          ? formatPing(
-                              row.snapshot.pingMs,
-                              messages.serverTable.pingUnknown,
-                            )
-                          : "-"}
+                        {row.snapshot ? (
+                          <ServerLatency
+                            pingMs={row.snapshot.pingMs}
+                            unknownLabel={messages.serverTable.pingUnknown}
+                          />
+                        ) : (
+                          "-"
+                        )}
                       </TableCell>
                       <TableCell className="min-w-0 py-1.5">
                         <HistoryModeTags
@@ -1693,18 +1701,24 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                       </TableCell>
                       <TableCell className="truncate py-1.5">
                         {status ? (
-                          <Badge variant={status.variant} title={refreshError}>
+                          <ServerStatusBadge
+                            variant={status.variant}
+                            title={refreshError}
+                          >
                             {status.label}
-                          </Badge>
+                          </ServerStatusBadge>
                         ) : (
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </TableCell>
                       <TableCell className="truncate py-1.5 text-xs text-muted-foreground">
-                        {formatConnectedAt(row.latest.connectedAt, formatDateTime)}
+                        {formatConnectedAt(
+                          row.latest.connectedAt,
+                          formatDateTime,
+                        )}
                       </TableCell>
                       <TableCell
-                        className="py-1.5 text-right"
+                        className="server-actions py-1.5 text-right"
                         onClick={(event) => event.stopPropagation()}
                       >
                         <div className="flex justify-end gap-1">
@@ -1712,7 +1726,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                             type="button"
                             size="icon-xs"
                             variant="outline"
-                            aria-label={messages.history.actions.reconnect(row.name)}
+                            aria-label={messages.history.actions.reconnect(
+                              row.name,
+                            )}
                             disabled={pendingConnectAddress === row.address}
                             onClick={() => void handleConnectRow(row)}
                           >
@@ -1728,7 +1744,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                             variant={isFavorite ? "secondary" : "ghost"}
                             aria-label={
                               isFavorite
-                                ? messages.serverTable.aria.removeFavorite(row.name)
+                                ? messages.serverTable.aria.removeFavorite(
+                                    row.name,
+                                  )
                                 : messages.history.actions.addFavorite(row.name)
                             }
                             disabled={pendingFavoriteAddress === row.address}
@@ -1751,7 +1769,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                             type="button"
                             size="icon-xs"
                             variant="ghost"
-                            aria-label={messages.history.actions.delete(row.name)}
+                            aria-label={messages.history.actions.delete(
+                              row.name,
+                            )}
                             disabled={isDeleting}
                             onClick={() =>
                               void deleteHistoryIds(
@@ -1915,7 +1935,9 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
           <DialogHeader>
             <DialogTitle>{messages.history.deleteSelectedDialogTitle}</DialogTitle>
             <DialogDescription>
-              {messages.history.deleteSelectedDialogDescription(selectedCurrentCount)}
+              {messages.history.deleteSelectedDialogDescription(
+                selectedCurrentCount,
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

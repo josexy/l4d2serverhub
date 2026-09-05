@@ -85,8 +85,8 @@ export function TablePagination({
   };
 
   return (
-    <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-t bg-muted/20 px-3 py-2 text-sm text-muted-foreground max-lg:grid-cols-1 max-lg:justify-items-center">
-      <span className="min-w-0 truncate justify-self-start max-lg:justify-self-center">
+    <div className="table-pagination grid min-h-14 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-t px-4 py-2 text-xs text-muted-foreground max-sm:grid-cols-1 max-sm:justify-items-center">
+      <span className="min-w-0 truncate justify-self-start max-sm:justify-self-center">
         {status}
       </span>
 
@@ -144,7 +144,7 @@ export function TablePagination({
                 aria-current={isCurrent ? "page" : undefined}
                 disabled={disabled || isCurrent}
                 className={cn(
-                  "size-7 rounded-full p-0 font-semibold tabular-nums",
+                  "size-7 rounded-md p-0 text-xs font-semibold tabular-nums",
                   isCurrent
                     ? "shadow-sm disabled:opacity-100"
                     : "text-foreground hover:bg-muted",
@@ -181,8 +181,8 @@ export function TablePagination({
 
       <div
         className={cn(
-          "flex min-w-0 justify-self-end max-lg:justify-self-center",
-          !pageSizeControl && "max-lg:hidden",
+          "flex min-w-0 justify-self-end max-sm:justify-self-center",
+          !pageSizeControl && "max-sm:hidden",
         )}
       >
         {pageSizeControl ? (

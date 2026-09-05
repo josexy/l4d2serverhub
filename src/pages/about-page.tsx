@@ -39,11 +39,10 @@ export function AboutPage() {
   return (
     <section className="page-layout">
       <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">{messages.about.eyebrow}</p>
+        <div className="page-title">
           <h2>{APP_NAME}</h2>
+          <div className="page-meta">v{versionLabel}</div>
         </div>
-        <div className="page-meta">v{versionLabel}</div>
       </div>
 
       <div className="utility-panel overflow-auto p-4">

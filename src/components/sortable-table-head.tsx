@@ -35,7 +35,7 @@ export function SortableTableHead({
   return (
     <TableHead
       className={cn(
-        "relative select-none pr-3",
+        "select-none pr-3",
         align === "right" && "text-right",
         className,
       )}
@@ -46,14 +46,19 @@ export function SortableTableHead({
         variant="ghost"
         size="xs"
         className={cn(
-          "max-w-full px-1",
+          "max-w-full px-1 text-[11px] font-medium",
+          activeDirection !== "none" ? "text-primary" : "text-muted-foreground",
           align === "right" ? "ml-auto" : "-ml-1",
         )}
         aria-label={getSortLabel(label, nextDirection)}
         onClick={onSort}
       >
         <span className="min-w-0 truncate">{label}</span>
-        <Icon aria-hidden="true" data-icon="inline-end" />
+        <Icon
+          aria-hidden="true"
+          data-icon="inline-end"
+          className={activeDirection === "none" ? "opacity-40" : undefined}
+        />
       </Button>
       {children}
     </TableHead>

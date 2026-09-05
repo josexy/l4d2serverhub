@@ -261,6 +261,7 @@ export const zhCn: Messages = {
       cleanErrors: "清理错误",
       cleaningErrors: "正在刷新并清理...",
       renameCurrentGroup: "重命名分组",
+      moreGroupActions: "更多分组操作",
       deleteCurrentGroup: "删除分组",
       deleteGroup: (name: string) => `删除分组 ${name}`,
       edit: (name: string) => `编辑 ${name}`,

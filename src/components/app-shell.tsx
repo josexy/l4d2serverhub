@@ -24,6 +24,7 @@ type NavigationItem = {
 type AppShellProps = {
   children: ReactNode;
   currentPage: ShellPage;
+  isPagePending?: boolean;
   onPageChange: (page: ShellPage) => void;
 };
 
@@ -53,6 +54,7 @@ const navigationItems: NavigationItem[] = [
 export function AppShell({
   children,
   currentPage,
+  isPagePending = false,
   onPageChange,
 }: AppShellProps) {
   const { messages } = useI18n();
@@ -79,16 +81,19 @@ export function AppShell({
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant={isSelected ? "secondary" : "ghost"}
+                      variant="ghost"
                       className={cn(
-                        "app-nav-button h-10 min-h-10",
-                        isSelected && "is-selected",
+                        "app-nav-button h-15 px-0 has-data-[icon=inline-start]:pl-0 max-[700px]:h-13",
+                        item.id === "settings" && "mt-auto",
+                        isSelected &&
+                          "is-selected hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                       )}
                       aria-label={copy.label}
                       aria-current={isSelected ? "page" : undefined}
                       onClick={() => onPageChange(item.id)}
                     >
-                      <Icon data-icon="inline-start" />
+                      <Icon className="size-5" strokeWidth={1.8} />
+                      <span className="app-nav-label">{copy.label}</span>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent
@@ -107,13 +112,14 @@ export function AppShell({
 
         <div className="app-sidebar-footer">
           <div className="app-status-dot" aria-hidden="true" />
-          <span className="sr-only">{messages.appShell.readyStatus}</span>
+          <span>{messages.appShell.readyStatus}</span>
         </div>
       </aside>
 
       <section className="app-content">
         <main
           className="app-main"
+          aria-busy={isPagePending}
           aria-label={messages.appShell.pageLabels[currentPage]}
         >
           {children}

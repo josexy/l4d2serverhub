@@ -143,14 +143,27 @@ export function useAppPreferences() {
 export function useI18n() {
   const { effectiveLocale } = useAppPreferences();
   const messages = useMemo(() => getMessages(effectiveLocale), [effectiveLocale]);
+  const formatDateTime = useMemo(() => {
+    const formatters = new Map<string, Intl.DateTimeFormat>();
+
+    return (
+      value: string | number | Date,
+      options?: Intl.DateTimeFormatOptions,
+    ) => {
+      const key = JSON.stringify(options ?? {});
+      let formatter = formatters.get(key);
+      if (!formatter) {
+        formatter = new Intl.DateTimeFormat(effectiveLocale, options);
+        formatters.set(key, formatter);
+      }
+
+      return formatter.format(new Date(value));
+    };
+  }, [effectiveLocale]);
 
   return {
     locale: effectiveLocale,
     messages,
-    formatDateTime: (
-      value: string | number | Date,
-      options?: Intl.DateTimeFormatOptions,
-    ) =>
-      new Intl.DateTimeFormat(effectiveLocale, options).format(new Date(value)),
+    formatDateTime,
   };
 }

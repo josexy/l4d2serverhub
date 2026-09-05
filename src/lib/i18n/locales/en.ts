@@ -262,6 +262,7 @@ export const en = {
       cleanErrors: "Clean errors",
       cleaningErrors: "Refreshing and cleaning...",
       renameCurrentGroup: "Rename group",
+      moreGroupActions: "More group actions",
       deleteCurrentGroup: "Delete group",
       deleteGroup: (name: string) => `Delete group ${name}`,
       edit: (name: string) => `Edit ${name}`,

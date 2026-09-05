@@ -27,7 +27,11 @@ import { CustomRulesDialog } from "@/components/custom-rules-dialog";
 import { countCustomRuleLines } from "@/lib/filters";
 import { useI18n } from "@/lib/app-preferences";
 import { DISPLAY_MODE_TAGS } from "@/lib/mode-tags";
-import type { SearchHistoryRecord, ServerFilters, ServerSort } from "@/lib/types";
+import type {
+  SearchHistoryRecord,
+  ServerFilters,
+  ServerSort,
+} from "@/lib/types";
 
 type FilterToolbarProps = {
   filters: ServerFilters;
@@ -119,19 +123,19 @@ export function FilterToolbar({
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col gap-3 border-b bg-muted/15 px-3 py-3">
+      <div className="filter-toolbar flex shrink-0 flex-col gap-3 border-b p-4">
         <div className="flex flex-wrap items-center gap-2">
           <div
             ref={searchHistoryContainerRef}
-            className="relative min-w-64 flex-[1_1_360px]"
+            className="server-search relative min-w-48 flex-[1_1_280px]"
           >
             <Search
               aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
             />
             <Input
               aria-label={messages.filterToolbar.aria.query}
-              className="h-9 rounded-xl pl-10"
+              className="h-9 rounded-lg border-transparent bg-muted/70 pl-9 shadow-none focus-visible:border-primary/40 focus-visible:bg-card focus-visible:ring-primary/10"
               placeholder={messages.filterToolbar.queryPlaceholder}
               value={filters.query}
               onChange={(event) => updateFilter("query", event.target.value)}
@@ -206,6 +210,7 @@ export function FilterToolbar({
                 type="button"
                 size="icon-sm"
                 variant={activeCustomRuleCount > 0 ? "secondary" : "outline"}
+                aria-label={messages.filterToolbar.customRules}
                 className="relative rounded-lg"
                 onClick={() => setCustomRulesOpen(true)}
               >
@@ -226,7 +231,7 @@ export function FilterToolbar({
           >
             <SelectTrigger
               aria-label={messages.filterToolbar.aria.sort}
-              className="h-8 min-w-28 rounded-lg"
+              className="filter-select-trigger h-8 min-w-28 rounded-lg"
               size="default"
             >
               <SelectValue />
@@ -252,7 +257,7 @@ export function FilterToolbar({
           >
             <SelectTrigger
               aria-label={messages.filterToolbar.aria.rows}
-              className="h-8 min-w-20 rounded-lg"
+              className="filter-select-trigger h-8 min-w-20 rounded-lg"
               size="default"
             >
               <SelectValue />
@@ -330,11 +335,14 @@ export function FilterToolbar({
               <Button
                 type="button"
                 size="default"
-                className="h-8 rounded-lg"
+                className="ml-auto h-8 rounded-lg"
                 disabled={loading}
                 onClick={onRefresh}
               >
-                <RefreshCw data-icon="inline-start" />
+                <RefreshCw
+                  data-icon="inline-start"
+                  className={loading ? "animate-spin" : undefined}
+                />
                 {messages.common.refresh}
               </Button>
             </TooltipTrigger>
@@ -365,12 +373,12 @@ function MultiSelectMenu({
       <DropdownMenuTrigger asChild>
         <Button
           aria-haspopup="menu"
-          className="h-8 min-w-18 justify-between rounded-lg px-2.5"
+          className="filter-select-trigger h-8 min-w-18 justify-between rounded-lg border-input px-2.5 font-normal"
           type="button"
           variant="outline"
         >
           {label}
-          <ChevronDown className="ml-2 text-muted-foreground" data-icon="inline-end" />
+          <ChevronDown className="text-muted-foreground" data-icon="inline-end" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

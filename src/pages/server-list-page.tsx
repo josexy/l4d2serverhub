@@ -588,16 +588,13 @@ export function ServerListPage({ isActive = true }: ServerListPageProps) {
   return (
     <section className="page-layout">
       <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">{messages.serverList.eyebrow}</p>
+        <div className="page-title">
           <h2>{messages.serverList.title}</h2>
+          <div className="page-meta">{pageSummary}</div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="page-meta">{pageSummary}</div>
-          </div>
+        <div className="page-actions text-xs text-muted-foreground">
           {queryResult?.refreshedAt ? (
-            <p className="text-xs text-muted-foreground">
+            <p>
               {messages.serverList.refreshedAtLabel(
                 formatDateTime(queryResult.refreshedAt, {
                   dateStyle: "medium",

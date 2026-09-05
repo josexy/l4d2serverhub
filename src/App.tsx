@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell";
@@ -17,7 +17,14 @@ type Page = "servers" | "favorites" | "history" | "settings" | "about";
 
 const pages: Page[] = ["servers", "favorites", "history", "settings", "about"];
 
-function renderPage(page: Page, isActive: boolean): ReactNode {
+// Navigation only needs to update the page being entered and the one being left.
+const PageContent = memo(function PageContent({
+  page,
+  isActive,
+}: {
+  page: Page;
+  isActive: boolean;
+}): ReactNode {
   switch (page) {
     case "servers":
       return <ServerListPage isActive={isActive} />;
@@ -30,11 +37,13 @@ function renderPage(page: Page, isActive: boolean): ReactNode {
     case "about":
       return <AboutPage />;
   }
-}
+});
 
 function App() {
   const isDetailWindow = isServerDetailWindowRoute();
   const [page, setPage] = useState<Page>("servers");
+  const [requestedPage, setRequestedPage] = useState<Page>("servers");
+  const [isPagePending, startPageTransition] = useTransition();
   const [visitedPages, setVisitedPages] = useState<Set<Page>>(
     () => new Set(["servers"]),
   );
@@ -57,18 +66,30 @@ function App() {
   }
 
   const handlePageChange = (nextPage: Page) => {
-    setVisitedPages((current) => {
-      if (current.has(nextPage)) {
-        return current;
-      }
+    if (nextPage === requestedPage) {
+      return;
+    }
 
-      return new Set(current).add(nextPage);
+    setRequestedPage(nextPage);
+    // Keep sidebar feedback urgent while React can yield during table rendering.
+    startPageTransition(() => {
+      setVisitedPages((current) => {
+        if (current.has(nextPage)) {
+          return current;
+        }
+
+        return new Set(current).add(nextPage);
+      });
+      setPage(nextPage);
     });
-    setPage(nextPage);
   };
 
   return (
-    <AppShell currentPage={page} onPageChange={handlePageChange}>
+    <AppShell
+      currentPage={requestedPage}
+      isPagePending={isPagePending}
+      onPageChange={handlePageChange}
+    >
       <Toaster position="bottom-right" />
       {pages.map((item) => {
         if (!visitedPages.has(item)) {
@@ -83,7 +104,7 @@ function App() {
             aria-hidden={!isActive}
             className={cn(isActive ? "contents" : "hidden")}
           >
-            {renderPage(item, isActive)}
+            <PageContent page={item} isActive={isActive} />
           </div>
         );
       })}

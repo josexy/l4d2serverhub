@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Folder,
   FolderOpen,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -23,6 +24,11 @@ import {
 import { FavoriteEditorDialog } from "@/components/favorite-editor-dialog";
 import { ServerDetailPanel } from "@/components/server-detail-panel";
 import { SortableTableHead } from "@/components/sortable-table-head";
+import {
+  ServerLatency,
+  ServerPopulation,
+  ServerStatusBadge,
+} from "@/components/server-metrics";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +42,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -78,10 +90,10 @@ import type {
 const DEFAULT_GROUP_ID = "default";
 const DEFAULT_ADDRESS_PAGE_SIZE = 50;
 const ADDRESS_PAGE_SIZE_OPTIONS = [25, 50, 100];
-const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 168;
 const SIDEBAR_MAX_WIDTH = 520;
-const SELECT_COLUMN_WIDTH = 44;
-const ACTIONS_COLUMN_WIDTH = 132;
+const SELECT_COLUMN_WIDTH = 36;
+const ACTIONS_COLUMN_WIDTH = 96;
 
 type FavoriteResizableColumnId =
   | "server"
@@ -96,23 +108,23 @@ type FavoriteColumnWidths = Record<FavoriteResizableColumnId, number>;
 type FavoriteSortColumnId = FavoriteResizableColumnId;
 
 const DEFAULT_COLUMN_WIDTHS: FavoriteColumnWidths = {
-  server: 280,
-  address: 190,
-  map: 150,
-  players: 88,
-  ping: 88,
-  tags: 160,
-  status: 96,
+  server: 220,
+  address: 158,
+  map: 120,
+  players: 76,
+  ping: 80,
+  tags: 80,
+  status: 76,
 };
 
 const MIN_COLUMN_WIDTHS: FavoriteColumnWidths = {
-  server: 220,
-  address: 170,
-  map: 120,
-  players: 84,
-  ping: 84,
-  tags: 112,
-  status: 88,
+  server: 180,
+  address: 148,
+  map: 112,
+  players: 76,
+  ping: 80,
+  tags: 80,
+  status: 76,
 };
 
 function displayFavoriteName(favorite: Favorite): string {
@@ -165,10 +177,6 @@ function favoriteTags(favorite: Favorite): string[] {
   return favorite.lastSnapshot?.modeTags.length
     ? favorite.lastSnapshot.modeTags
     : favorite.tags;
-}
-
-function formatPing(pingMs: number | null | undefined, unknownLabel: string) {
-  return pingMs === null || pingMs === undefined ? unknownLabel : `${pingMs} ms`;
 }
 
 function favoriteSnapshotTarget(
@@ -344,10 +352,10 @@ function ResizeHandle({
 }) {
   return (
     <div
-      className="absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
+      className="column-resize-handle absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none"
       onPointerDown={onPointerDown}
     >
-      <div className="mx-auto h-full w-px bg-border/80 transition-colors hover:bg-primary" />
+      <div className="mx-auto h-full w-px" />
     </div>
   );
 }
@@ -367,7 +375,10 @@ function FavoriteModeTags({
         <Badge
           key={tag}
           variant="outline"
-          className={cn("max-w-28 truncate", MODE_TAG_CLASS_NAMES[tag])}
+          className={cn(
+            "max-w-28 truncate rounded-md text-[11px]",
+            MODE_TAG_CLASS_NAMES[tag],
+          )}
         >
           {modeLabels[tag] ?? tag}
         </Badge>
@@ -406,6 +417,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     () => new Set(),
   );
   const [loading, setLoading] = useState(true);
+  const favoritesLoadedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingFavorite, setEditingFavorite] = useState<Favorite | null>(null);
@@ -457,7 +469,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   const [favoriteQueryResult, setFavoriteQueryResult] =
     useState<ServerQueryResult | null>(null);
   const [showGroupSidebar, setShowGroupSidebar] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [sidebarWidth, setSidebarWidth] = useState(196);
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [columnWidths, setColumnWidths] = useState<FavoriteColumnWidths>(
     DEFAULT_COLUMN_WIDTHS,
@@ -635,8 +647,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
     [columnWidths],
   );
 
-  const loadFavorites = useCallback(async () => {
-    setLoading(true);
+  const loadFavorites = useCallback(async (isCurrent: () => boolean) => {
+    // Keep the mounted table (and its scroll position) during return visits.
+    if (!favoritesLoadedRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -644,18 +659,29 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
         api.listGroups(),
         api.listFavorites(),
       ]);
+      if (!isCurrent()) {
+        return;
+      }
       setGroups(normalizeGroups(groupsResult, fallbackDefaultGroup));
       setFavorites(favoritesResult);
       setFavoriteQueryResult(null);
+      favoritesLoadedRef.current = true;
     } catch (loadError) {
+      if (!isCurrent()) {
+        return;
+      }
       const message = formatCommandError(
         loadError,
         messages.favorites.toasts.loadFailed,
       );
-      setError(message);
+      if (!favoritesLoadedRef.current) {
+        setError(message);
+      }
       toast.error(message);
     } finally {
-      setLoading(false);
+      if (isCurrent()) {
+        setLoading(false);
+      }
     }
   }, [fallbackDefaultGroup, messages.favorites.toasts.loadFailed]);
 
@@ -664,7 +690,12 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
       return;
     }
 
-    void loadFavorites();
+    let isCurrent = true;
+    void loadFavorites(() => isCurrent);
+
+    return () => {
+      isCurrent = false;
+    };
   }, [isActive, loadFavorites]);
 
   useEffect(() => {
@@ -1761,11 +1792,13 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
   return (
     <section className="page-layout">
       <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">{messages.favorites.eyebrow}</p>
+        <div className="page-title">
           <h2>{messages.favorites.title}</h2>
+          <div className="page-meta">
+            {messages.favorites.savedLabel(favorites.length)}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="page-actions">
           <Button
             type="button"
             variant="outline"
@@ -1813,9 +1846,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
             <Plus data-icon="inline-start" />
             {messages.favorites.actions.addCustomServer}
           </Button>
-          <div className="page-meta">
-            {messages.favorites.savedLabel(favorites.length)}
-          </div>
         </div>
       </div>
 
@@ -1837,11 +1867,11 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
           <>
             {showGroupSidebar ? (
               <aside
-                className="relative flex shrink-0 flex-col border-r bg-muted/10"
+                className="favorite-sidebar relative flex shrink-0 flex-col border-r"
                 style={{ width: `${sidebarWidth}px` }}
               >
-                <div className="border-b px-3 py-3">
-                  <h3 className="text-sm font-semibold">
+                <div className="favorite-sidebar-heading border-b">
+                  <h3 className="text-xs font-medium">
                     {messages.favorites.groupListTitle}
                   </h3>
                 </div>
@@ -1857,13 +1887,14 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         <div
                           key={group.id}
                           className={cn(
-                            "group flex w-full min-w-0 items-center gap-1 rounded-lg",
-                            isSelected && "bg-muted",
+                            "favorite-group group flex w-full min-w-0 items-center gap-1 rounded-lg",
+                            isSelected && "is-selected",
                           )}
                         >
                           <button
                             type="button"
-                            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            className="favorite-group-trigger flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-lg px-2 py-2 text-left text-[13px] transition-colors hover:bg-primary/5"
+                            aria-current={isSelected ? "true" : undefined}
                             title={groupName}
                             onClick={() => setSelectedGroupId(group.id)}
                           >
@@ -1875,7 +1906,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                             <span className="min-w-0 flex-1 truncate font-medium">
                               {groupName}
                             </span>
-                            <Badge variant="secondary" className="shrink-0">
+                            <Badge
+                              variant="secondary"
+                              className="favorite-group-count h-5 shrink-0 rounded-md px-1.5"
+                            >
                               {groupFavorites.length}
                             </Badge>
                           </button>
@@ -1884,7 +1918,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                               type="button"
                               size="icon-xs"
                               variant="ghost"
-                              className="mr-1 shrink-0 opacity-70 hover:opacity-100"
+                              className="favorite-group-delete mr-1 shrink-0 hover:text-destructive"
                               aria-label={messages.favorites.actions.deleteGroup(
                                 groupName,
                               )}
@@ -1909,16 +1943,16 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
             ) : null}
 
             <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-3">
-                <div className="min-w-0">
+              <div className="favorite-group-toolbar flex shrink-0 items-center justify-between gap-x-3 gap-y-2 border-b px-4 py-1.5">
+                <div className="flex min-w-0 max-w-full items-center gap-2">
                   <h3 className="truncate text-sm font-semibold">
                     {displayGroupName(selectedGroup)}
                   </h3>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="shrink-0 text-xs text-muted-foreground">
                     {messages.favorites.savedLabel(selectedGroupFavoriteCount)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="page-actions">
                   {selectedCurrentCount > 0 ? (
                     <>
                       <span className="text-xs font-medium text-muted-foreground">
@@ -1976,36 +2010,39 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       : messages.favorites.actions.cleanErrors}
                   </Button>
                   {selectedGroup.id !== DEFAULT_GROUP_ID ? (
-                    <>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          renamingGroupId !== null ||
-                          deletingGroupId !== null ||
-                          cleaningErrors
-                        }
-                        onClick={() => openRenameGroupDialog(selectedGroup)}
-                      >
-                        <Edit data-icon="inline-start" />
-                        {messages.favorites.actions.renameCurrentGroup}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          renamingGroupId !== null ||
-                          deletingGroupId !== null ||
-                          cleaningErrors
-                        }
-                        onClick={() => setDeleteGroup(selectedGroup)}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        {messages.favorites.actions.deleteCurrentGroup}
-                      </Button>
-                    </>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="outline"
+                          aria-label={messages.favorites.actions.moreGroupActions}
+                          title={messages.favorites.actions.moreGroupActions}
+                          disabled={
+                            renamingGroupId !== null ||
+                            deletingGroupId !== null ||
+                            cleaningErrors
+                          }
+                        >
+                          <MoreHorizontal aria-hidden="true" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-max min-w-36">
+                        <DropdownMenuItem
+                          onSelect={() => openRenameGroupDialog(selectedGroup)}
+                        >
+                          <Edit aria-hidden="true" />
+                          {messages.favorites.actions.renameCurrentGroup}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setDeleteGroup(selectedGroup)}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          {messages.favorites.actions.deleteCurrentGroup}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ) : null}
                 </div>
               </div>
@@ -2026,7 +2063,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                 <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
                   <table
                     data-slot="table"
-                    className="w-full table-fixed caption-bottom text-sm"
+                    className="server-data-table w-full table-fixed caption-bottom text-[13px]"
                     style={{ minWidth: `${tableMinWidth}px` }}
                   >
                     <colgroup>
@@ -2040,7 +2077,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       <col style={{ width: `${columnWidths.status}px` }} />
                       <col style={{ width: `${ACTIONS_COLUMN_WIDTH}px` }} />
                     </colgroup>
-                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background [&_th]:shadow-[inset_0_-1px_0_var(--border)]">
+                    <TableHeader className="server-table-header">
                       <TableRow>
                         <TableHead
                           className="w-11"
@@ -2084,7 +2121,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         </SortableTableHead>
                         <SortableTableHead
                           label={messages.serverTable.columns.map}
-                          activeDirection={activeSortDirection(sortState, "map")}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "map",
+                          )}
                           getSortLabel={messages.tableSorting.aria.sortColumn}
                           onSort={() => handleSort("map")}
                         >
@@ -2112,7 +2152,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         </SortableTableHead>
                         <SortableTableHead
                           label={messages.serverTable.columns.ping}
-                          activeDirection={activeSortDirection(sortState, "ping")}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "ping",
+                          )}
                           align="right"
                           getSortLabel={messages.tableSorting.aria.sortColumn}
                           onSort={() => handleSort("ping")}
@@ -2125,7 +2168,10 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         </SortableTableHead>
                         <SortableTableHead
                           label={messages.favorites.columns.tags}
-                          activeDirection={activeSortDirection(sortState, "tags")}
+                          activeDirection={activeSortDirection(
+                            sortState,
+                            "tags",
+                          )}
                           getSortLabel={messages.tableSorting.aria.sortColumn}
                           onSort={() => handleSort("tags")}
                         >
@@ -2151,7 +2197,7 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                           />
                         </SortableTableHead>
                         <TableHead
-                          className="w-28 text-right"
+                          className="server-actions w-28 text-right"
                           aria-label={messages.favorites.columns.actions}
                         />
                       </TableRow>
@@ -2162,9 +2208,9 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         const favoriteAddress = displayFavoriteAddress(favorite);
                         const isDeleting = deletingFavoriteIds.has(favorite.id);
                         const snapshot = favorite.lastSnapshot;
-                        const isRefreshingFavorite = refreshingFavoriteIds.has(
-                          favorite.id,
-                        ) || loadingDetailFavoriteId === favorite.id;
+                        const isRefreshingFavorite =
+                          refreshingFavoriteIds.has(favorite.id) ||
+                          loadingDetailFavoriteId === favorite.id;
                         const refreshError = favoriteRefreshErrors.get(
                           favorite.id,
                         );
@@ -2179,7 +2225,12 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                         return (
                           <TableRow
                             key={favorite.id}
-                            className="h-11 cursor-pointer"
+                            className="h-12 cursor-pointer"
+                            data-state={
+                              selectedFavoriteIds.has(favorite.id)
+                                ? "selected"
+                                : undefined
+                            }
                             onClick={() => void openFavoriteDetails(favorite)}
                           >
                             <TableCell
@@ -2198,33 +2249,46 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                               />
                             </TableCell>
                             <TableCell className="min-w-0 py-1.5">
-                              <div className="truncate font-medium">
+                              <button
+                                type="button"
+                                className="block w-full truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+                                title={favoriteName}
+                              >
                                 {favoriteName}
-                              </div>
+                              </button>
                               {favorite.notes ? (
                                 <div className="truncate text-xs text-muted-foreground">
                                   {favorite.notes}
                                 </div>
                               ) : null}
                             </TableCell>
-                            <TableCell className="truncate py-1.5 font-mono text-xs">
+                            <TableCell className="truncate py-1.5 font-mono text-xs text-muted-foreground">
                               {favoriteAddress}
                             </TableCell>
                             <TableCell className="truncate py-1.5">
                               {snapshot?.map || "-"}
                             </TableCell>
                             <TableCell className="py-1.5 text-right tabular-nums">
-                              {snapshot
-                                ? `${snapshot.players}/${snapshot.maxPlayers}`
-                                : "-"}
+                              {snapshot ? (
+                                <ServerPopulation
+                                  players={snapshot.players}
+                                  maxPlayers={snapshot.maxPlayers}
+                                />
+                              ) : (
+                                "-"
+                              )}
                             </TableCell>
                             <TableCell className="py-1.5 text-right tabular-nums">
-                              {snapshot
-                                ? formatPing(
-                                    snapshot.pingMs,
-                                    messages.serverTable.pingUnknown,
-                                  )
-                                : "-"}
+                              {snapshot ? (
+                                <ServerLatency
+                                  pingMs={snapshot.pingMs}
+                                  unknownLabel={
+                                    messages.serverTable.pingUnknown
+                                  }
+                                />
+                              ) : (
+                                "-"
+                              )}
                             </TableCell>
                             <TableCell className="min-w-0 py-1.5">
                               <FavoriteModeTags
@@ -2234,19 +2298,19 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                             </TableCell>
                             <TableCell className="truncate py-1.5">
                               {status ? (
-                                <Badge
+                                <ServerStatusBadge
                                   variant={status.variant}
                                   title={refreshError}
                                 >
                                   {status.label}
-                                </Badge>
+                                </ServerStatusBadge>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
                                   -
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="py-1.5 text-right">
+                            <TableCell className="server-actions py-1.5 text-right">
                               <div className="flex justify-end gap-1">
                                 <Button
                                   type="button"

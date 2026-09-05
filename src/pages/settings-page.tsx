@@ -451,11 +451,10 @@ export function SettingsPage({ isActive = true }: SettingsPageProps) {
   return (
     <section className="page-layout">
       <div className="page-heading">
-        <div>
-          <p className="page-eyebrow">{messages.settings.eyebrow}</p>
+        <div className="page-title">
           <h2>{messages.settings.title}</h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="page-actions">
           <Button
             type="button"
             variant="outline"
