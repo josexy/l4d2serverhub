@@ -110,10 +110,6 @@ export function AppShell({
           </nav>
         </TooltipProvider>
 
-        <div className="app-sidebar-footer">
-          <div className="app-status-dot" aria-hidden="true" />
-          <span>{messages.appShell.readyStatus}</span>
-        </div>
       </aside>
 
       <section className="app-content">

@@ -28,7 +28,6 @@ export const zhCn: Messages = {
   },
   appShell: {
     brandTitle: "L4D2 Server Hub",
-    readyStatus: "就绪",
     pageLabels: {
       servers: "服务器",
       favorites: "收藏",

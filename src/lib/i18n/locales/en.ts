@@ -26,7 +26,6 @@ export const en = {
   },
   appShell: {
     brandTitle: "L4D2 Server Hub",
-    readyStatus: "Ready",
     pageLabels: {
       servers: "Servers",
       favorites: "Favorites",
