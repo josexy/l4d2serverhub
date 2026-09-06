@@ -28,7 +28,7 @@ import { ServerTableScrollArea } from "@/components/server-table-scroll-area";
 import {
   ServerLatency,
   ServerPopulation,
-  ServerStatusBadge,
+  ServerStatusIcon,
 } from "@/components/server-metrics";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
@@ -102,20 +102,18 @@ type FavoriteResizableColumnId =
   | "map"
   | "players"
   | "ping"
-  | "tags"
-  | "status";
+  | "tags";
 
 type FavoriteColumnWidths = Record<FavoriteResizableColumnId, number>;
 type FavoriteSortColumnId = FavoriteResizableColumnId;
 
 const DEFAULT_COLUMN_WIDTHS: FavoriteColumnWidths = {
-  server: 220,
+  server: 180,
   address: 158,
   map: 120,
   players: 76,
   ping: 80,
   tags: 80,
-  status: 76,
 };
 
 const MIN_COLUMN_WIDTHS: FavoriteColumnWidths = {
@@ -125,7 +123,6 @@ const MIN_COLUMN_WIDTHS: FavoriteColumnWidths = {
   players: 76,
   ping: 80,
   tags: 80,
-  status: 76,
 };
 
 function displayFavoriteName(favorite: Favorite): string {
@@ -282,37 +279,6 @@ function pageResultWithSnapshot(
   });
 
   return changed ? { ...current, items } : current;
-}
-
-function getFavoriteStatus(
-  favorite: Favorite,
-  isRefreshing: boolean,
-  refreshError: string | undefined,
-  labels: ReturnType<typeof useI18n>["messages"]["serverTable"]["statuses"],
-  refreshingLabel: string,
-) {
-  if (isRefreshing) {
-    return { label: refreshingLabel, variant: "outline" as const };
-  }
-
-  const snapshot = favorite.lastSnapshot;
-  if (refreshError || snapshot?.lastQueryError) {
-    return { label: labels.error, variant: "destructive" as const };
-  }
-
-  if (!snapshot) {
-    return null;
-  }
-
-  if (snapshot.maxPlayers > 0 && snapshot.players >= snapshot.maxPlayers) {
-    return { label: labels.full, variant: "secondary" as const };
-  }
-
-  if (snapshot.players === 0) {
-    return { label: labels.empty, variant: "outline" as const };
-  }
-
-  return { label: labels.open, variant: "default" as const };
 }
 
 function normalizeGroups(
@@ -578,28 +544,12 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                     ] ?? tag,
                 )
                 .join(", ");
-            case "status": {
-              const status = getFavoriteStatus(
-                favorite,
-                refreshingFavoriteIds.has(favorite.id) ||
-                  loadingDetailFavoriteId === favorite.id,
-                favoriteRefreshErrors.get(favorite.id),
-                messages.serverTable.statuses,
-                messages.common.refreshing,
-              );
-              return status?.label;
-            }
           }
         },
       ),
     [
       currentFavorites,
-      favoriteRefreshErrors,
-      loadingDetailFavoriteId,
-      messages.common.refreshing,
       messages.serverDetail.modeLabels,
-      messages.serverTable.statuses,
-      refreshingFavoriteIds,
       sortState,
     ],
   );
@@ -2075,7 +2025,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                       <col style={{ width: `${columnWidths.players}px` }} />
                       <col style={{ width: `${columnWidths.ping}px` }} />
                       <col style={{ width: `${columnWidths.tags}px` }} />
-                      <col style={{ width: `${columnWidths.status}px` }} />
                       <col style={{ width: `${ACTIONS_COLUMN_WIDTH}px` }} />
                     </colgroup>
                     <TableHeader className="server-table-header">
@@ -2182,23 +2131,8 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                             }
                           />
                         </SortableTableHead>
-                        <SortableTableHead
-                          label={messages.serverTable.columns.status}
-                          activeDirection={activeSortDirection(
-                            sortState,
-                            "status",
-                          )}
-                          getSortLabel={messages.tableSorting.aria.sortColumn}
-                          onSort={() => handleSort("status")}
-                        >
-                          <ResizeHandle
-                            onPointerDown={(event) =>
-                              startColumnResize(event, "status")
-                            }
-                          />
-                        </SortableTableHead>
                         <TableHead
-                          className="server-actions w-28 text-right"
+                          className="server-actions text-right"
                           aria-label={messages.favorites.columns.actions}
                         />
                       </TableRow>
@@ -2214,13 +2148,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                           loadingDetailFavoriteId === favorite.id;
                         const refreshError = favoriteRefreshErrors.get(
                           favorite.id,
-                        );
-                        const status = getFavoriteStatus(
-                          favorite,
-                          isRefreshingFavorite,
-                          refreshError,
-                          messages.serverTable.statuses,
-                          messages.common.refreshing,
                         );
 
                         return (
@@ -2250,23 +2177,36 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                               />
                             </TableCell>
                             <TableCell className="min-w-0 py-1.5">
-                              <button
-                                type="button"
-                                className="block w-full truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
-                                title={favoriteName}
-                              >
-                                {favoriteName}
-                              </button>
+                              <div className="flex min-w-0 items-center gap-2">
+                                <ServerStatusIcon
+                                  snapshot={snapshot}
+                                  isRefreshing={isRefreshingFavorite}
+                                  error={refreshError}
+                                />
+                                <button
+                                  type="button"
+                                  className="min-w-0 flex-1 truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+                                  title={favoriteName}
+                                >
+                                  {favoriteName}
+                                </button>
+                              </div>
                               {favorite.notes ? (
-                                <div className="truncate text-xs text-muted-foreground">
+                                <div className="truncate pl-6 text-xs text-muted-foreground">
                                   {favorite.notes}
                                 </div>
                               ) : null}
                             </TableCell>
-                            <TableCell className="truncate py-1.5 font-mono text-xs text-muted-foreground">
+                            <TableCell
+                              className="truncate py-1.5 font-mono text-xs text-muted-foreground"
+                              title={favoriteAddress}
+                            >
                               {favoriteAddress}
                             </TableCell>
-                            <TableCell className="truncate py-1.5">
+                            <TableCell
+                              className="truncate py-1.5"
+                              title={snapshot?.map}
+                            >
                               {snapshot?.map || "-"}
                             </TableCell>
                             <TableCell className="py-1.5 text-right tabular-nums">
@@ -2296,20 +2236,6 @@ export function FavoritesPage({ isActive = true }: FavoritesPageProps) {
                                 tags={favoriteTags(favorite)}
                                 modeLabels={messages.serverDetail.modeLabels}
                               />
-                            </TableCell>
-                            <TableCell className="truncate py-1.5">
-                              {status ? (
-                                <ServerStatusBadge
-                                  variant={status.variant}
-                                  title={refreshError}
-                                >
-                                  {status.label}
-                                </ServerStatusBadge>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  -
-                                </span>
-                              )}
                             </TableCell>
                             <TableCell className="server-actions py-1.5 text-right">
                               <div className="flex justify-end gap-1">

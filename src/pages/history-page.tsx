@@ -15,7 +15,7 @@ import { ServerTableScrollArea } from "@/components/server-table-scroll-area";
 import {
   ServerLatency,
   ServerPopulation,
-  ServerStatusBadge,
+  ServerStatusIcon,
 } from "@/components/server-metrics";
 import { TablePagination } from "@/components/table-pagination";
 import { Badge } from "@/components/ui/badge";
@@ -66,8 +66,8 @@ import type {
 
 const DEFAULT_ADDRESS_PAGE_SIZE = 50;
 const ADDRESS_PAGE_SIZE_OPTIONS = [25, 50, 100];
-const SELECT_COLUMN_WIDTH = 44;
-const ACTIONS_COLUMN_WIDTH = 104;
+const SELECT_COLUMN_WIDTH = 36;
+const ACTIONS_COLUMN_WIDTH = 96;
 
 type HistoryResizableColumnId =
   | "server"
@@ -76,7 +76,6 @@ type HistoryResizableColumnId =
   | "players"
   | "ping"
   | "tags"
-  | "status"
   | "connected";
 
 type HistoryColumnWidths = Record<HistoryResizableColumnId, number>;
@@ -94,13 +93,12 @@ type HistoryServerRow = {
 };
 
 const DEFAULT_COLUMN_WIDTHS: HistoryColumnWidths = {
-  server: 240,
-  address: 164,
-  map: 136,
-  players: 80,
-  ping: 88,
-  tags: 96,
-  status: 80,
+  server: 220,
+  address: 158,
+  map: 120,
+  players: 76,
+  ping: 80,
+  tags: 80,
   connected: 152,
 };
 
@@ -111,7 +109,6 @@ const MIN_COLUMN_WIDTHS: HistoryColumnWidths = {
   players: 76,
   ping: 80,
   tags: 80,
-  status: 76,
   connected: 148,
 };
 
@@ -340,36 +337,6 @@ function HistoryModeTags({
   );
 }
 
-function getHistoryStatus(
-  snapshot: ServerSnapshot | null,
-  isRefreshing: boolean,
-  refreshError: string | undefined,
-  labels: ReturnType<typeof useI18n>["messages"]["serverTable"]["statuses"],
-  refreshingLabel: string,
-) {
-  if (isRefreshing) {
-    return { label: refreshingLabel, variant: "outline" as const };
-  }
-
-  if (refreshError || snapshot?.lastQueryError) {
-    return { label: labels.error, variant: "destructive" as const };
-  }
-
-  if (!snapshot) {
-    return null;
-  }
-
-  if (snapshot.maxPlayers > 0 && snapshot.players >= snapshot.maxPlayers) {
-    return { label: labels.full, variant: "secondary" as const };
-  }
-
-  if (snapshot.players === 0) {
-    return { label: labels.empty, variant: "outline" as const };
-  }
-
-  return { label: labels.open, variant: "default" as const };
-}
-
 function activeSortDirection(
   sortState: TableSortState<HistorySortColumnId>,
   columnId: HistorySortColumnId,
@@ -547,27 +514,12 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                   ] ?? tag,
               )
               .join(", ");
-          case "status": {
-            const status = getHistoryStatus(
-              row.snapshot,
-              refreshingHistoryKeys.has(row.key) || loadingDetailKey === row.key,
-              historyRefreshErrors.get(row.key),
-              messages.serverTable.statuses,
-              messages.common.refreshing,
-            );
-            return status?.label;
-          }
           case "connected":
             return new Date(row.latest.connectedAt);
         }
       }),
     [
-      historyRefreshErrors,
-      loadingDetailKey,
-      messages.common.refreshing,
       messages.serverDetail.modeLabels,
-      messages.serverTable.statuses,
-      refreshingHistoryKeys,
       rows,
       sortState,
     ],
@@ -1507,14 +1459,13 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                 <col style={{ width: `${columnWidths.players}px` }} />
                 <col style={{ width: `${columnWidths.ping}px` }} />
                 <col style={{ width: `${columnWidths.tags}px` }} />
-                <col style={{ width: `${columnWidths.status}px` }} />
                 <col style={{ width: `${columnWidths.connected}px` }} />
                 <col style={{ width: `${ACTIONS_COLUMN_WIDTH}px` }} />
               </colgroup>
               <TableHeader className="server-table-header">
                 <TableRow>
                   <TableHead
-                    className="w-11"
+                    className="w-9"
                     aria-label={messages.history.columns.select}
                   >
                     <Checkbox
@@ -1586,16 +1537,6 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                     />
                   </SortableTableHead>
                   <SortableTableHead
-                    label={messages.serverTable.columns.status}
-                    activeDirection={activeSortDirection(sortState, "status")}
-                    getSortLabel={messages.tableSorting.aria.sortColumn}
-                    onSort={() => handleSort("status")}
-                  >
-                    <ResizeHandle
-                      onPointerDown={(event) => startColumnResize(event, "status")}
-                    />
-                  </SortableTableHead>
-                  <SortableTableHead
                     label={messages.history.columns.connected}
                     activeDirection={activeSortDirection(
                       sortState,
@@ -1609,7 +1550,7 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                     />
                   </SortableTableHead>
                   <TableHead
-                    className="server-actions w-28 text-right"
+                    className="server-actions text-right"
                     aria-label={messages.history.columns.actions}
                   />
                 </TableRow>
@@ -1624,13 +1565,6 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                     refreshingHistoryKeys.has(row.key) ||
                     loadingDetailKey === row.key;
                   const refreshError = historyRefreshErrors.get(row.key);
-                  const status = getHistoryStatus(
-                    row.snapshot,
-                    isRefreshingRow,
-                    refreshError,
-                    messages.serverTable.statuses,
-                    messages.common.refreshing,
-                  );
                   const isSelected = selectedDetailKey === row.key;
 
                   return (
@@ -1657,25 +1591,38 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                         />
                       </TableCell>
                       <TableCell className="min-w-0 py-1.5">
-                        <button
-                          type="button"
-                          className="block w-full truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
-                          title={row.name}
-                        >
-                          {row.name}
-                        </button>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <ServerStatusIcon
+                            snapshot={row.snapshot}
+                            isRefreshing={isRefreshingRow}
+                            error={refreshError}
+                          />
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 truncate text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring"
+                            title={row.name}
+                          >
+                            {row.name}
+                          </button>
+                        </div>
                         {row.connectionCount > 1 ? (
-                          <div className="truncate text-xs text-muted-foreground">
+                          <div className="truncate pl-6 text-xs text-muted-foreground">
                             {messages.history.groupedRecordsLabel(
                               row.connectionCount,
                             )}
                           </div>
                         ) : null}
                       </TableCell>
-                      <TableCell className="truncate py-1.5 font-mono text-xs text-muted-foreground">
+                      <TableCell
+                        className="truncate py-1.5 font-mono text-xs text-muted-foreground"
+                        title={row.address}
+                      >
                         {row.address}
                       </TableCell>
-                      <TableCell className="truncate py-1.5">
+                      <TableCell
+                        className="truncate py-1.5"
+                        title={row.snapshot?.map || row.latest.map}
+                      >
                         {row.snapshot?.map || row.latest.map || "-"}
                       </TableCell>
                       <TableCell className="py-1.5 text-right tabular-nums">
@@ -1699,18 +1646,6 @@ export function HistoryPage({ isActive = true }: HistoryPageProps) {
                           tags={row.snapshot?.modeTags ?? []}
                           modeLabels={messages.serverDetail.modeLabels}
                         />
-                      </TableCell>
-                      <TableCell className="truncate py-1.5">
-                        {status ? (
-                          <ServerStatusBadge
-                            variant={status.variant}
-                            title={refreshError}
-                          >
-                            {status.label}
-                          </ServerStatusBadge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
                       </TableCell>
                       <TableCell className="truncate py-1.5 text-xs text-muted-foreground">
                         {formatConnectedAt(

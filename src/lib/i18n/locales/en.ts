@@ -158,6 +158,7 @@ export const en = {
     },
     pingUnknown: "Unknown",
     statuses: {
+      unknown: "Unknown",
       error: "Error",
       locked: "Locked",
       full: "Full",

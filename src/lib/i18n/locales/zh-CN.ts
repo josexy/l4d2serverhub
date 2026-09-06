@@ -160,6 +160,7 @@ export const zhCn: Messages = {
     },
     pingUnknown: "未知",
     statuses: {
+      unknown: "未知",
       error: "错误",
       locked: "加密",
       full: "满员",

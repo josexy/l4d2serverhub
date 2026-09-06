@@ -18,7 +18,7 @@ import { SortableTableHead } from "@/components/sortable-table-head";
 import {
   ServerLatency,
   ServerPopulation,
-  ServerStatusBadge,
+  ServerStatusIcon,
 } from "@/components/server-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,8 +61,7 @@ type ResizableColumnId =
   | "map"
   | "players"
   | "ping"
-  | "tags"
-  | "status";
+  | "tags";
 
 type ColumnWidths = Record<ResizableColumnId, number>;
 type ServerSortColumnId = ResizableColumnId;
@@ -77,7 +76,6 @@ const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
   players: 86,
   ping: 90,
   tags: 112,
-  status: 80,
 };
 
 const MIN_COLUMN_WIDTHS: ColumnWidths = {
@@ -87,30 +85,10 @@ const MIN_COLUMN_WIDTHS: ColumnWidths = {
   players: 84,
   ping: 84,
   tags: 112,
-  status: 76,
 };
 
 function clampColumnWidth(columnId: ResizableColumnId, width: number): number {
   return Math.max(MIN_COLUMN_WIDTHS[columnId], Math.round(width));
-}
-
-function getStatus(
-  server: ServerSnapshot,
-  labels: ReturnType<typeof useI18n>["messages"]["serverTable"]["statuses"],
-) {
-  if (server.lastQueryError) {
-    return { label: labels.error, variant: "destructive" as const };
-  }
-
-  if (server.maxPlayers > 0 && server.players >= server.maxPlayers) {
-    return { label: labels.full, variant: "secondary" as const };
-  }
-
-  if (server.players === 0) {
-    return { label: labels.empty, variant: "outline" as const };
-  }
-
-  return { label: labels.open, variant: "default" as const };
 }
 
 function ServerTags({
@@ -264,13 +242,10 @@ export function ServerTable({
             return getDisplayModeTags(server.modeTags)
               .map((tag) => messages.filterToolbar.modeLabels[tag] ?? tag)
               .join(", ");
-          case "status":
-            return getStatus(server, messages.serverTable.statuses).label;
         }
       }),
     [
       messages.filterToolbar.modeLabels,
-      messages.serverTable.statuses,
       servers,
       sortState,
     ],
@@ -341,7 +316,6 @@ export function ServerTable({
           <col style={{ width: `${columnWidths.players}px` }} />
           <col style={{ width: `${columnWidths.ping}px` }} />
           <col style={{ width: `${columnWidths.tags}px` }} />
-          <col style={{ width: `${columnWidths.status}px` }} />
           <col style={{ width: `${CONNECT_COLUMN_WIDTH}px` }} />
         </colgroup>
         <TableHeader className="server-table-header">
@@ -412,16 +386,6 @@ export function ServerTable({
                 onPointerDown={(event) => startColumnResize(event, "tags")}
               />
             </SortableTableHead>
-            <SortableTableHead
-              label={messages.serverTable.columns.status}
-              activeDirection={activeSortDirection(sortState, "status")}
-              getSortLabel={messages.tableSorting.aria.sortColumn}
-              onSort={() => handleSort("status")}
-            >
-              <ResizeHandle
-                onPointerDown={(event) => startColumnResize(event, "status")}
-              />
-            </SortableTableHead>
             <TableHead
               className="server-actions w-[100px] text-center"
               aria-label={messages.serverTable.columns.connect}
@@ -432,7 +396,6 @@ export function ServerTable({
         </TableHeader>
         <TableBody>
           {sortedServers.map((server) => {
-            const status = getStatus(server, messages.serverTable.statuses);
             const isFavorite = favoriteAddresses.has(server.address);
             const isFavoritePending = pendingFavoriteAddresses.has(
               server.address,
@@ -487,32 +450,35 @@ export function ServerTable({
                   </Button>
                 </TableCell>
                 <TableCell className="min-w-0">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto w-full max-w-full justify-start gap-2 overflow-hidden px-1 py-0.5 text-left"
-                    aria-label={messages.serverTable.aria.openDetails(
-                      server.name,
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelect(server);
-                    }}
-                  >
-                    <span
-                      className="min-w-0 flex-1 truncate font-medium"
-                      title={server.name}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <ServerStatusIcon snapshot={server} />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto min-w-0 flex-1 justify-start gap-2 overflow-hidden px-1 py-0.5 text-left"
+                      aria-label={messages.serverTable.aria.openDetails(
+                        server.name,
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(server);
+                      }}
                     >
-                      {server.name}
-                    </span>
-                    {server.vacSecured ? (
-                      <ShieldCheck
-                        aria-hidden="true"
-                        className="size-3.5 shrink-0 text-muted-foreground/65"
-                      />
-                    ) : null}
-                  </Button>
+                      <span
+                        className="min-w-0 flex-1 truncate font-medium"
+                        title={server.name}
+                      >
+                        {server.name}
+                      </span>
+                      {server.vacSecured ? (
+                        <ShieldCheck
+                          aria-hidden="true"
+                          className="size-3.5 shrink-0 text-muted-foreground/65"
+                        />
+                      ) : null}
+                    </Button>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div
@@ -544,11 +510,6 @@ export function ServerTable({
                     server={server}
                     modeLabels={messages.filterToolbar.modeLabels}
                   />
-                </TableCell>
-                <TableCell>
-                  <ServerStatusBadge variant={status.variant}>
-                    {status.label}
-                  </ServerStatusBadge>
                 </TableCell>
                 <TableCell className="server-actions text-center">
                   <Button
