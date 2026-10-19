@@ -24,6 +24,15 @@ export const en = {
     enabled: "Enabled",
     disabled: "Disabled",
   },
+  titleBar: {
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore",
+    close: "Close",
+    actionFailed: "Window action failed",
+    stateReadFailed: "Unable to read window state",
+    titleUpdateFailed: "Unable to update window title",
+  },
   appShell: {
     brandTitle: "L4D2 Server Hub",
     switchTheme: (current: string, next: string) => `Theme: ${current}. Switch to ${next}.`,

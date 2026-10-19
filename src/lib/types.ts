@@ -211,6 +211,11 @@ export interface ServerSnapshotUpdatedEvent {
   snapshot: ServerSnapshot;
 }
 
+export interface DesktopWindowState {
+  maximized: boolean;
+  focused: boolean;
+}
+
 export interface BackupPayload {
   version: number;
   settings: AppSettings;

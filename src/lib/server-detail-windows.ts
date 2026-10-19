@@ -76,6 +76,7 @@ export async function openServerDetailWindow(payload: ServerDetailWindowPayload)
     minHeight: 560,
     center: true,
     visible: false,
+    decorations: false,
   });
 
   await waitForWindowCreated(detailWindow);

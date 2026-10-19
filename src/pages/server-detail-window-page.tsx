@@ -1,8 +1,8 @@
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ServerDetailContent } from "@/components/server-detail-panel";
 import { FavoriteGroupPickerDialog } from "@/components/favorite-group-picker-dialog";
+import { TitleBar } from "@/components/title-bar";
 import { toast } from "@/components/ui/toast";
 import { api, formatCommandError } from "@/lib/api";
 import { useI18n } from "@/lib/app-preferences";
@@ -107,23 +107,14 @@ export function ServerDetailWindowPage() {
   }, [messages.serverList.toasts.favoritesMetadataUnavailable]);
 
   useEffect(() => {
-    if (!server) {
+    if (!api.isDesktop()) {
       return;
     }
 
-    document.title = server.name.trim() || server.address;
-  }, [server]);
-
-  useEffect(() => {
-    const detailWindow = getCurrentWebviewWindow();
-    const showReadyWindow = async () => {
-      await detailWindow.show();
-      await detailWindow.unminimize();
-      await detailWindow.setFocus();
-    };
-
     const timeoutId = window.setTimeout(() => {
-      void showReadyWindow();
+      void api.showCurrentWindow().catch((error: unknown) => {
+        toast.error(formatCommandError(error));
+      });
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -229,31 +220,38 @@ export function ServerDetailWindowPage() {
   };
 
   return (
-    <main className="h-screen min-h-0 bg-background text-foreground">
-      <ServerDetailContent
-        active={true}
-        variant="window"
-        server={server}
-        onConnect={handleConnect}
-        onToggleFavorite={handleToggleFavorite}
-        onUpdateServer={handleUpdateServer}
-        connectPending={connectPending}
-        favoritePending={favoritePending}
-        isFavorite={isFavorite}
+    <div className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
+      <TitleBar
+        title={
+          server?.name.trim() || server?.address || messages.serverDetail.titleFallback
+        }
       />
-      <FavoriteGroupPickerDialog
-        open={favoriteDraft !== null}
-        draft={favoriteDraft}
-        onOpenChange={(open) => {
-          if (!open) {
-            setFavoriteDraft(null);
-          }
-        }}
-        onSaved={(favorite) => {
-          setFavorites((current) => [...current, favorite]);
-          setContextFavoriteId(favorite.id);
-        }}
-      />
-    </main>
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <ServerDetailContent
+          active={true}
+          variant="window"
+          server={server}
+          onConnect={handleConnect}
+          onToggleFavorite={handleToggleFavorite}
+          onUpdateServer={handleUpdateServer}
+          connectPending={connectPending}
+          favoritePending={favoritePending}
+          isFavorite={isFavorite}
+        />
+        <FavoriteGroupPickerDialog
+          open={favoriteDraft !== null}
+          draft={favoriteDraft}
+          onOpenChange={(open) => {
+            if (!open) {
+              setFavoriteDraft(null);
+            }
+          }}
+          onSaved={(favorite) => {
+            setFavorites((current) => [...current, favorite]);
+            setContextFavoriteId(favorite.id);
+          }}
+        />
+      </main>
+    </div>
   );
 }

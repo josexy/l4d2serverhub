@@ -1,10 +1,12 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AppSettings,
   BackupPayload,
   CommandError,
+  DesktopWindowState,
   Favorite,
   FavoriteGroup,
   FavoriteInput,
@@ -59,6 +61,45 @@ async function querySavedServerSnapshotsWithProgress(
 }
 
 export const api = {
+  isDesktop: isTauri,
+  getWindowState: async (): Promise<DesktopWindowState> => {
+    const currentWindow = getCurrentWindow();
+    const [maximized, focused] = await Promise.all([
+      currentWindow.isMaximized(),
+      currentWindow.isFocused(),
+    ]);
+    return { maximized, focused };
+  },
+  listenWindowStateChanged: async (onChange: () => void) => {
+    const currentWindow = getCurrentWindow();
+    const subscriptions = await Promise.allSettled([
+      currentWindow.onResized(onChange),
+      currentWindow.onFocusChanged(onChange),
+    ]);
+    const unlisten = () => {
+      for (const subscription of subscriptions) {
+        if (subscription.status === "fulfilled") {
+          subscription.value();
+        }
+      }
+    };
+    const failed = subscriptions.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      unlisten();
+      throw failed.reason;
+    }
+    return unlisten;
+  },
+  minimizeWindow: () => getCurrentWindow().minimize(),
+  toggleMaximizeWindow: () => getCurrentWindow().toggleMaximize(),
+  closeWindow: () => getCurrentWindow().close(),
+  setWindowTitle: (title: string) => getCurrentWindow().setTitle(title),
+  showCurrentWindow: async () => {
+    const currentWindow = getCurrentWindow();
+    await currentWindow.show();
+    await currentWindow.unminimize();
+    await currentWindow.setFocus();
+  },
   getAppVersion: () => getVersion(),
   queryServers: (params: ServerQueryParams) =>
     invoke<ServerQueryResult>("query_servers", { params }),

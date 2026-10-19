@@ -26,6 +26,15 @@ export const zhCn: Messages = {
     enabled: "已启用",
     disabled: "已禁用",
   },
+  titleBar: {
+    minimize: "最小化",
+    maximize: "最大化",
+    restore: "还原",
+    close: "关闭",
+    actionFailed: "窗口操作失败",
+    stateReadFailed: "无法读取窗口状态",
+    titleUpdateFailed: "无法更新窗口标题",
+  },
   appShell: {
     brandTitle: "L4D2 Server Hub",
     switchTheme: (current: string, next: string) => `当前主题：${current}，切换为${next}`,

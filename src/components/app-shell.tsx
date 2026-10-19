@@ -4,6 +4,7 @@ import { History, Info, Server, Settings, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TitleBar } from "@/components/title-bar";
 import {
   Tooltip,
   TooltipContent,
@@ -62,6 +63,7 @@ export function AppShell({
 
   return (
     <div className="app-shell">
+      <TitleBar title={messages.appShell.brandTitle} />
       <aside className="app-sidebar" aria-label="Primary navigation">
         <div className="app-brand">
           <div className="app-brand-mark">
