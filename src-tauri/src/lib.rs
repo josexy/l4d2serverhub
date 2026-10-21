@@ -29,6 +29,7 @@ use std::{
 };
 use tauri::{Listener, LogicalSize, Manager};
 use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 use tokio::sync::{Mutex, RwLock};
 use upstream_api::{UpstreamApiConfig, UpstreamClientCache};
 
@@ -75,6 +76,10 @@ const MIN_HEIGHT_CAP: f64 = 700.0;
 const STARTUP_WIDTH_CAP: f64 = 1400.0;
 const STARTUP_HEIGHT_CAP: f64 = 900.0;
 const DATABASE_FILE_NAME: &str = "l4d2-server-hub.sqlite";
+// Keep visibility controlled by frontend readiness and the system tray.
+const MAIN_WINDOW_STATE_FLAGS: StateFlags = StateFlags::SIZE
+    .union(StateFlags::POSITION)
+    .union(StateFlags::MAXIMIZED);
 pub const LOG_FILE_NAME: &str = "l4d2-server-hub";
 
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -216,6 +221,14 @@ pub fn run() {
     }
 
     builder
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(MAIN_WINDOW_STATE_FLAGS)
+                .with_filter(|label| label == "main")
+                // Restore after applying the default layout and minimum size below.
+                .skip_initial_state("main")
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -296,6 +309,9 @@ pub fn run() {
                 log::warn!("failed to configure main window layout: {err}");
             } else {
                 log::debug!("configured main window startup layout");
+            }
+            if let Err(err) = main_window.restore_state(MAIN_WINDOW_STATE_FLAGS) {
+                log::warn!("failed to restore main window state: {err}");
             }
             report_startup_timing(
                 "configured startup window",
