@@ -25,6 +25,10 @@ const LIST_BY_ADDRESSES_ACTION: &str = "l4d2_get_public_servers_by_addresses";
 const EMPTY_MAPS: &str = "[]";
 const EMPTY_MODES: &str = "";
 #[async_trait]
+#[allow(
+    clippy::double_must_use,
+    reason = "async_trait adds must_use to methods returning must_use futures"
+)]
 pub trait UpstreamServerClient: Send + Sync {
     async fn query_servers(&self, params: &ServerQueryParams) -> AppResult<ServerQueryResult>;
     async fn get_server_details(
